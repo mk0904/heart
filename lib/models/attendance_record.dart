@@ -22,6 +22,9 @@ class AttendanceRecord extends HiveObject {
   @HiveField(5)
   String type; // 'check_in' or 'check_out'
 
+  @HiveField(6)
+  bool synced; // Whether this record has been synced to Firebase
+
   AttendanceRecord({
     required this.personId,
     required this.personName,
@@ -29,5 +32,6 @@ class AttendanceRecord extends HiveObject {
     required this.timestamp,
     required this.confidence,
     required this.type,
+    this.synced = false,
   });
 }

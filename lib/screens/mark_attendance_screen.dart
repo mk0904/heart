@@ -6,9 +6,12 @@ import 'package:image/image.dart' as img;
 import '../services/face_detection_service.dart';
 import '../services/face_recognition_service.dart';
 import '../services/attendance_service.dart';
+import '../theme/app_theme.dart';
 
 class MarkAttendanceScreen extends StatefulWidget {
-  const MarkAttendanceScreen({super.key});
+  final bool isCheckIn;
+  
+  const MarkAttendanceScreen({super.key, required this.isCheckIn});
 
   @override
   State<MarkAttendanceScreen> createState() => _MarkAttendanceScreenState();
@@ -20,10 +23,10 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   int _cameraIndex = 0;
   bool _isInitialized = false;
   bool _isProcessing = false;
+  bool _requestingPermission = false;
   final FaceDetectionService _faceDetectionService = FaceDetectionService();
   final FaceRecognitionService _faceRecognitionService = FaceRecognitionService();
   final AttendanceService _attendanceService = AttendanceService();
-  String _selectedType = 'check_in';
 
   @override
   void initState() {
@@ -47,11 +50,11 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         await _switchCamera(frontCameraIndex);
       }
     } catch (e) {
-      print('Error initializing camera: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Camera error: $e')),
         );
+        Navigator.pop(context);
       }
     }
   }
@@ -61,10 +64,8 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       return;
     }
 
-    // Dispose the old controller
     await _controller?.dispose();
 
-    // Initialize new controller
     _controller = CameraController(
       _cameras![cameraIndex],
       ResolutionPreset.medium,
@@ -79,7 +80,6 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         });
       }
     } catch (e) {
-      print('Error switching camera: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Camera error: $e')),
@@ -88,16 +88,9 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     }
   }
 
-  Future<void> _toggleCamera() async {
-    if (_cameras == null || _cameras!.length < 2) {
-      return;
-    }
-    // Switch to the other camera
-    final newIndex = _cameraIndex == 0 ? 1 : 0;
-    await _switchCamera(newIndex);
-  }
-
   Future<void> _captureAndMarkAttendance() async {
+    if (_controller == null || _isProcessing) return;
+
     setState(() {
       _isProcessing = true;
     });
@@ -137,35 +130,77 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         person.faceEmbedding,
       );
 
+      // Check time validation
+      final isWithinHours = await _attendanceService.isWithinCollegeHours();
+      if (!isWithinHours) {
+        throw Exception('Attendance can only be marked during college hours');
+      }
+
+      // Check geofence validation (skip if offline)
+      final geofenceResult = await _attendanceService.validateGeofence();
+      if (!geofenceResult['valid'] && geofenceResult['message'] != 'College details not found') {
+        // Only fail if it's a real geofence issue, not just missing college details
+        if (geofenceResult['message']?.contains('km away') ?? false) {
+          throw Exception(geofenceResult['message'] ?? 'Location validation failed');
+        }
+      }
+
       await _attendanceService.markAttendance(
         person: person,
-        type: _selectedType,
+        type: widget.isCheckIn ? 'check_in' : 'check_out',
         confidence: confidence,
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${_selectedType == 'check_in' ? 'Check-in' : 'Check-out'} marked for ${person.name}!',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        // Always navigate back, even if sync failed (it will sync later)
         Navigator.pop(context);
+        
+        // Show success message after navigation
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${widget.isCheckIn ? 'Check-in' : 'Check-out'} marked for ${person.name}!',
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+        setState(() {
+          _isProcessing = false;
+        });
+        
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Failed'),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text('Try Again'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Go back to attendance screen
+                },
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
         );
       }
     } finally {
+      // Ensure processing flag is reset
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -184,105 +219,170 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_requestingPermission) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppTheme.primary),
+              SizedBox(height: AppTheme.spacingLG),
+              Text(
+                'Requesting camera permission...',
+                style: TextStyle(color: AppTheme.text),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mark Attendance'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
-      ),
-      body: _isInitialized
-          ? Column(
+      backgroundColor: Colors.black,
+      body: _isInitialized && _controller != null
+          ? Stack(
               children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      CameraPreview(_controller!),
-                      if (_isProcessing)
-                        Container(
-                          color: Colors.black54,
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(
-                                  color: Colors.white,
-                                ),
-                                SizedBox(height: 20),
-                                Text(
-                                  'Processing...',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                // Camera Preview (preserve aspect ratio to avoid horizontal squeeze)
+                Positioned.fill(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final aspectRatio = _controller!.value.aspectRatio;
+                      if (aspectRatio <= 0) {
+                        return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      }
+                      return Center(
+                        child: AspectRatio(
+                          aspectRatio: aspectRatio,
+                          child: CameraPreview(_controller!),
                         ),
-                      // Camera switch button
-                      if (_cameras != null && _cameras!.length > 1)
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: FloatingActionButton(
-                            mini: true,
-                            onPressed: _isProcessing ? null : _toggleCamera,
-                            backgroundColor: Colors.black54,
-                            child: const Icon(Icons.cameraswitch),
-                          ),
-                        ),
-                    ],
+                      );
+                    },
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
+                
+                // Face Guide Overlay
+                Center(
+                  child: Container(
+                    width: 250,
+                    height: 320,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.rectangle,
+                      borderRadius: BorderRadius.circular(125),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.5),
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Instruction Text
+                Positioned(
+                  bottom: 200,
+                  left: 0,
+                  right: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing2XL),
+                    child: const Text(
+                      'Position your face within the circle',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+                
+                // Camera Controls
+                Positioned(
+                  bottom: 50,
+                  left: 0,
+                  right: 0,
                   child: Column(
                     children: [
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'check_in',
-                            label: Text('Check In'),
-                            icon: Icon(Icons.login),
-                          ),
-                          ButtonSegment(
-                            value: 'check_out',
-                            label: Text('Check Out'),
-                            icon: Icon(Icons.logout),
-                          ),
-                        ],
-                        selected: {_selectedType},
-                        onSelectionChanged: _isProcessing
-                            ? null
-                            : (Set<String> newSelection) {
-                                setState(() {
-                                  _selectedType = newSelection.first;
-                                });
-                              },
+                      // Attendance Type Display
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppTheme.spacingLG,
+                          vertical: AppTheme.spacingSM,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              widget.isCheckIn ? Icons.login : Icons.logout,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: AppTheme.spacingSM),
+                            Text(
+                              widget.isCheckIn ? 'Check In' : 'Check Out',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isProcessing ? null : _captureAndMarkAttendance,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
+                      
+                      const SizedBox(height: AppTheme.spacingLG),
+                      
+                      // Capture Button
+                      GestureDetector(
+                        onTap: _isProcessing ? null : _captureAndMarkAttendance,
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.3),
                           ),
                           child: _isProcessing
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
+                              ? const Center(
                                   child: CircularProgressIndicator(
-                                    strokeWidth: 2,
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text(
-                                  'Capture & Mark Attendance',
-                                  style: TextStyle(fontSize: 16),
+                              : Container(
+                                  margin: const EdgeInsets.all(7.5),
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                  ),
                                 ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: AppTheme.spacingLG),
+                      
+                      // Cancel Button
+                      TextButton(
+                        onPressed: _isProcessing ? null : () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppTheme.spacingSM,
+                            horizontal: AppTheme.spacing2XL,
+                          ),
+                          backgroundColor: Colors.black.withOpacity(0.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -290,9 +390,13 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                 ),
               ],
             )
-          : const Center(
-              child: CircularProgressIndicator(),
+          : const Scaffold(
+              backgroundColor: Colors.black,
+              body: Center(
+                child: CircularProgressIndicator(color: AppTheme.primary),
+              ),
             ),
     );
   }
+
 }

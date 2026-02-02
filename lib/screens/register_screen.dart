@@ -1,11 +1,16 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_commons/google_mlkit_commons.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import '../services/face_detection_service.dart';
 import '../services/face_recognition_service.dart';
 import '../services/attendance_service.dart';
+import '../services/firebase_auth_service.dart';
+import '../theme/app_theme.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -23,13 +28,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final FaceDetectionService _faceDetectionService = FaceDetectionService();
   final FaceRecognitionService _faceRecognitionService = FaceRecognitionService();
   final AttendanceService _attendanceService = AttendanceService();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _employeeIdController = TextEditingController();
+  final FirebaseAuthService _authService = FirebaseAuthService();
+  
+  // Real-time face detection
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableClassification: false,
+      enableLandmarks: false,
+      enableTracking: false,
+      minFaceSize: 0.1,
+    ),
+  );
+  Face? _detectedFace;
+  bool _isDetecting = false;
+  String? _userName;
+  String? _userUid;
 
   @override
   void initState() {
     super.initState();
+    _loadUserDetails();
     _initializeCamera();
+  }
+
+  Future<void> _loadUserDetails() async {
+    try {
+      final user = await _authService.getCurrentUser();
+      if (user != null && mounted) {
+        setState(() {
+          _userName = user.name ?? 'User';
+          _userUid = user.uid;
+        });
+      }
+    } catch (e) {
+      // Ignore error
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -71,21 +104,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ResolutionPreset.medium,
     );
 
-    try {
-      await _controller!.initialize();
-      if (mounted) {
-        setState(() {
-          _cameraIndex = cameraIndex;
-          _isInitialized = true;
-        });
-      }
-    } catch (e) {
+      try {
+        await _controller!.initialize();
+        if (mounted) {
+          setState(() {
+            _cameraIndex = cameraIndex;
+            _isInitialized = true;
+          });
+          // Start periodic face detection
+          _startPeriodicFaceDetection();
+        }
+      } catch (e) {
       print('Error switching camera: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Camera error: $e')),
         );
       }
+    }
+  }
+
+  void _startPeriodicFaceDetection() {
+    // Detect faces every 1.5 seconds to avoid too frequent captures
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted && _controller != null && _controller!.value.isInitialized && !_isProcessing) {
+        _detectFaceInPreview();
+        _startPeriodicFaceDetection(); // Continue detecting
+      }
+    });
+  }
+
+  Future<void> _detectFaceInPreview() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_isDetecting || _isProcessing) return;
+    
+    _isDetecting = true;
+    try {
+      // Take a temporary picture for detection
+      final image = await _controller!.takePicture();
+      final inputImage = InputImage.fromFilePath(image.path);
+      final faces = await _faceDetector.processImage(inputImage);
+      
+      if (mounted) {
+        setState(() {
+          _detectedFace = faces.isNotEmpty ? faces.first : null;
+        });
+      }
+      
+      // Delete temporary file
+      try {
+        await File(image.path).delete();
+      } catch (e) {
+        // Ignore deletion errors
+      }
+    } catch (e) {
+      print('Face detection error: $e');
+      if (mounted) {
+        setState(() {
+          _detectedFace = null;
+        });
+      }
+    } finally {
+      _isDetecting = false;
     }
   }
 
@@ -99,11 +179,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _captureAndRegister() async {
-    if (_nameController.text.isEmpty || _employeeIdController.text.isEmpty) {
+    if (_userName == null || _userUid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter name and employee ID'),
+          content: Text('User details not available. Please try again.'),
           backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (_detectedFace == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please position your face in the frame'),
+          backgroundColor: Colors.orange,
         ),
       );
       return;
@@ -140,21 +230,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Get face embedding
       final embedding = await _faceRecognitionService.getFaceEmbedding(croppedFace);
 
-      // Register person
-      await _attendanceService.registerPerson(
-        name: _nameController.text.trim(),
-        employeeId: _employeeIdController.text.trim(),
+      // Register person with Firebase user details
+      await _attendanceService.registerPersonWithFirebase(
+        name: _userName!,
+        employeeId: _userUid!,
         faceEmbedding: embedding,
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Person registered successfully!'),
+            content: Text('Face registered successfully!'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context);
+        Navigator.pop(context, true); // Return true to indicate success
       }
     } catch (e) {
       if (mounted) {
@@ -164,6 +254,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             backgroundColor: Colors.red,
           ),
         );
+        // Restart periodic face detection
+        _startPeriodicFaceDetection();
       }
     } finally {
       if (mounted) {
@@ -179,106 +271,246 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _controller?.dispose();
     _faceDetectionService.dispose();
     _faceRecognitionService.dispose();
-    _nameController.dispose();
-    _employeeIdController.dispose();
+    _faceDetector.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Register Person'),
-        backgroundColor: Colors.blue,
+        title: const Text('Register Face'),
+        backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        elevation: 0,
       ),
       body: _isInitialized
-          ? Column(
+          ? Stack(
               children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      CameraPreview(_controller!),
-                      if (_isProcessing)
-                        Container(
-                          color: Colors.black54,
-                          child: const Center(
-                            child: CircularProgressIndicator(
+                // Camera Preview
+                Positioned.fill(
+                  child: CameraPreview(_controller!),
+                ),
+                
+                // Face Detection Overlay
+                if (_detectedFace != null && _controller != null)
+                  Positioned.fill(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final previewSize = _controller!.value.previewSize;
+                        if (previewSize == null) return const SizedBox();
+                        
+                        return CustomPaint(
+                          painter: FaceDetectionPainter(
+                            face: _detectedFace!,
+                            imageSize: Size(previewSize.height, previewSize.width),
+                            previewSize: constraints.biggest,
+                            isFrontCamera: _cameras?[_cameraIndex].lensDirection == CameraLensDirection.front,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                
+                // Processing Overlay
+                if (_isProcessing)
+                  Container(
+                    color: Colors.black54,
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            color: Colors.white,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Processing...',
+                            style: TextStyle(
                               color: Colors.white,
+                              fontSize: 16,
                             ),
                           ),
-                        ),
-                      // Camera switch button
-                      if (_cameras != null && _cameras!.length > 1)
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: FloatingActionButton(
-                            mini: true,
-                            onPressed: _isProcessing ? null : _toggleCamera,
-                            backgroundColor: Colors.black54,
-                            child: const Icon(Icons.cameraswitch),
-                          ),
-                        ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Name',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.person),
-                        ),
-                        enabled: !_isProcessing,
+                
+                // Instructions
+                if (!_isProcessing)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _employeeIdController,
-                        decoration: const InputDecoration(
-                          labelText: 'Employee ID',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.badge),
+                      child: Text(
+                        _detectedFace != null
+                            ? 'Face detected! Tap capture to register.'
+                            : 'Position your face in the frame',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
                         ),
-                        enabled: !_isProcessing,
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isProcessing ? null : _captureAndRegister,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: _isProcessing
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text(
-                                  'Capture & Register',
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                
+                // Camera switch button
+                if (_cameras != null && _cameras!.length > 1 && !_isProcessing)
+                  Positioned(
+                    top: 80,
+                    right: 16,
+                    child: FloatingActionButton(
+                      mini: true,
+                      onPressed: _toggleCamera,
+                      backgroundColor: Colors.black54,
+                      child: const Icon(Icons.cameraswitch, color: Colors.white),
+                    ),
+                  ),
+                
+                // Capture button
+                if (!_isProcessing)
+                  Positioned(
+                    bottom: 40,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: FloatingActionButton(
+                        onPressed: _detectedFace != null ? _captureAndRegister : null,
+                        backgroundColor: _detectedFace != null ? AppTheme.primary : Colors.grey,
+                        child: const Icon(Icons.camera_alt, color: Colors.white),
+                      ),
+                    ),
+                  ),
               ],
             )
           : const Center(
               child: CircularProgressIndicator(),
             ),
     );
+  }
+}
+
+// Custom painter for face detection bounding box
+class FaceDetectionPainter extends CustomPainter {
+  final Face face;
+  final Size imageSize;
+  final Size previewSize;
+  final bool isFrontCamera;
+
+  FaceDetectionPainter({
+    required this.face,
+    required this.imageSize,
+    required this.previewSize,
+    required this.isFrontCamera,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.green
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+
+    // Get bounding box
+    final rect = face.boundingBox;
+    
+    // Calculate scale factors - account for aspect ratio
+    final imageAspectRatio = imageSize.width / imageSize.height;
+    final previewAspectRatio = previewSize.width / previewSize.height;
+    
+    double scaleX, scaleY, offsetX = 0, offsetY = 0;
+    
+    if (imageAspectRatio > previewAspectRatio) {
+      // Image is wider - fit to width
+      scaleX = previewSize.width / imageSize.width;
+      scaleY = scaleX;
+      offsetY = (previewSize.height - imageSize.height * scaleY) / 2;
+    } else {
+      // Image is taller - fit to height
+      scaleY = previewSize.height / imageSize.height;
+      scaleX = scaleY;
+      offsetX = (previewSize.width - imageSize.width * scaleX) / 2;
+    }
+    
+    // Adjust coordinates based on camera orientation
+    double left, top, width, height;
+    if (isFrontCamera) {
+      // Front camera is mirrored, so flip horizontally
+      left = (imageSize.width - rect.right) * scaleX + offsetX;
+      top = rect.top * scaleY + offsetY;
+      width = rect.width * scaleX;
+      height = rect.height * scaleY;
+    } else {
+      left = rect.left * scaleX + offsetX;
+      top = rect.top * scaleY + offsetY;
+      width = rect.width * scaleX;
+      height = rect.height * scaleY;
+    }
+
+    // Draw bounding box
+    canvas.drawRect(
+      Rect.fromLTWH(left, top, width, height),
+      paint,
+    );
+
+    // Draw corner indicators
+    final cornerPaint = Paint()
+      ..color = Colors.green
+      ..style = PaintingStyle.fill;
+
+    final cornerSize = 20.0;
+    
+    // Top-left corner
+    canvas.drawRect(
+      Rect.fromLTWH(left, top, cornerSize, 3),
+      cornerPaint,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(left, top, 3, cornerSize),
+      cornerPaint,
+    );
+    
+    // Top-right corner
+    canvas.drawRect(
+      Rect.fromLTWH(left + width - cornerSize, top, cornerSize, 3),
+      cornerPaint,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(left + width - 3, top, 3, cornerSize),
+      cornerPaint,
+    );
+    
+    // Bottom-left corner
+    canvas.drawRect(
+      Rect.fromLTWH(left, top + height - 3, cornerSize, 3),
+      cornerPaint,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(left, top + height - cornerSize, 3, cornerSize),
+      cornerPaint,
+    );
+    
+    // Bottom-right corner
+    canvas.drawRect(
+      Rect.fromLTWH(left + width - cornerSize, top + height - 3, cornerSize, 3),
+      cornerPaint,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(left + width - 3, top + height - cornerSize, 3, cornerSize),
+      cornerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(FaceDetectionPainter oldDelegate) {
+    return oldDelegate.face != face;
   }
 }

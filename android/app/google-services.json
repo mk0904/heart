@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "333002007969",
+    "project_id": "heart-nagaland",
+    "storage_bucket": "heart-nagaland.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:333002007969:android:171f676b4ac62a686317e0",
+        "android_client_info": {
+          "package_name": "com.mk2004.heartnagaland"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBY1bcCCSBGVcBgwWzRmQp6tPD6-VDycJc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
