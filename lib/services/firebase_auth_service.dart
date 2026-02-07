@@ -43,7 +43,7 @@ class FirebaseAuthService {
         college: collegeIdValue, // Store collegeId in 'college' field
         collegeId: collegeIdValue,
         createdOn: DateTime.now().toIso8601String(),
-        active: true,
+        active: false,
         status: 'Active',
         profileCompleted: false,
       );

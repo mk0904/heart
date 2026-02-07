@@ -96,7 +96,6 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
               'email': u.email,
               'role': u.role,
               'active': u.active ?? true,
-              'status': u.status ?? 'Active',
               'photoUrl': u.photoUrl,
               'phoneNumber': u.phoneNumber,
               'employmentType': u.employmentType,
@@ -112,8 +111,8 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
         
         // Sort: active users first, then by name
         _users.sort((a, b) {
-          final aActive = a['active'] ?? a['status'] == 'Active';
-          final bActive = b['active'] ?? b['status'] == 'Active';
+          final aActive = a['active'] ?? true;
+          final bActive = b['active'] ?? true;
           if (aActive == bActive) {
             return (a['name'] ?? '').compareTo(b['name'] ?? '');
           }
@@ -146,7 +145,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
 
   Future<void> _toggleUserStatus(Map<String, dynamic> user) async {
     final userId = user['id'];
-    final currentStatus = user['active'] ?? user['status'] == 'Active';
+    final currentStatus = user['active'] ?? true;
     final newStatus = !currentStatus;
     
     // Optimistically update UI
@@ -154,12 +153,10 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
       final index = _users.indexWhere((u) => u['id'] == userId);
       if (index != -1) {
         _users[index]['active'] = newStatus;
-        _users[index]['status'] = newStatus ? 'Active' : 'Inactive';
       }
       final filteredIndex = _filteredUsers.indexWhere((u) => u['id'] == userId);
       if (filteredIndex != -1) {
         _filteredUsers[filteredIndex]['active'] = newStatus;
-        _filteredUsers[filteredIndex]['status'] = newStatus ? 'Active' : 'Inactive';
       }
       _showToggleModal = false;
     });
@@ -170,7 +167,6 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
           .doc(userId)
           .update({
         'active': newStatus,
-        'status': newStatus ? 'Active' : 'Inactive',
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
@@ -187,12 +183,10 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
         final index = _users.indexWhere((u) => u['id'] == userId);
         if (index != -1) {
           _users[index]['active'] = currentStatus;
-          _users[index]['status'] = currentStatus ? 'Active' : 'Inactive';
         }
         final filteredIndex = _filteredUsers.indexWhere((u) => u['id'] == userId);
         if (filteredIndex != -1) {
           _filteredUsers[filteredIndex]['active'] = currentStatus;
-          _filteredUsers[filteredIndex]['status'] = currentStatus ? 'Active' : 'Inactive';
         }
       });
       
@@ -356,7 +350,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
   }
 
   Widget _buildUserCard(Map<String, dynamic> user) {
-    final isActive = user['active'] ?? user['status'] == 'Active';
+    final isActive = user['active'] ?? true;
     
     return Container(
       margin: const EdgeInsets.only(bottom: AppTheme.spacingMD),
@@ -568,7 +562,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
 
   Widget _buildToggleModal() {
     final user = _selectedUser!;
-    final isActive = user['active'] ?? user['status'] == 'Active';
+    final isActive = user['active'] ?? true;
     
     return GestureDetector(
       onTap: () {
