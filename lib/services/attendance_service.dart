@@ -61,7 +61,7 @@ class AttendanceService {
     _isInitialized = true;
     
     // Sync current user's face embedding from Firebase to local storage (non-blocking)
-    _syncCurrentUserEmbedding();
+    syncCurrentUserEmbedding();
     
     // Check for auto-checkout on initialization (non-blocking)
     checkAutoCheckout();
@@ -74,7 +74,7 @@ class AttendanceService {
   }
   
   /// Sync current user's face embedding from Firebase to local storage
-  Future<void> _syncCurrentUserEmbedding() async {
+  Future<void> syncCurrentUserEmbedding() async {
     try {
       final user = await _authService.getCurrentUser();
       if (user == null) return;
@@ -569,6 +569,50 @@ class AttendanceService {
     final timestamp = DateTime.now();
     final today = DateTime(timestamp.year, timestamp.month, timestamp.day);
 
+    // Validate Check-in/Check-out pairing logic
+    // We need to check existing records to ensure proper sequence
+    final user = await _authService.getCurrentUser();
+    if (user != null) {
+      final todayRecord = await _getTodayRecord(user.uid);
+      
+      String? lastStatus;
+      if (todayRecord != null) {
+        final data = todayRecord.data() as Map<String, dynamic>?;
+        if (data != null) {
+          final events = List<Map<String, dynamic>>.from(
+            (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+          );
+          
+          // Backward compatibility
+          if (events.isEmpty) {
+            if (data['checkInTime'] != null) {
+              events.add({'type': 'check_in', 'time': data['checkInTime'] as String});
+            }
+            if (data['checkoutTime'] != null) {
+              events.add({'type': 'check_out', 'time': data['checkoutTime'] as String});
+            }
+          }
+          
+          if (events.isNotEmpty) {
+            // Sort by time to be sure
+            events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+            lastStatus = events.last['type'] as String?;
+          }
+        }
+      }
+
+      // Enforce the rules
+      if (type == 'check_in') {
+        if (lastStatus == 'check_in') {
+          throw Exception('You are already checked in! Please check out first.');
+        }
+      } else if (type == 'check_out') {
+        if (lastStatus == null || lastStatus == 'check_out') {
+          throw Exception('You need to check in first before checking out.');
+        }
+      }
+    }
+
     // Save to local storage immediately so UI can pop and feel instant
     final record = AttendanceRecord(
       personId: person.id,
@@ -1035,17 +1079,43 @@ class AttendanceService {
           .get();
 
       // Convert and sort in memory
-      final firebaseList = firebaseRecords.docs.map((doc) {
+      final firebaseList = <AttendanceRecord>[];
+      
+      for (var doc in firebaseRecords.docs) {
         final data = doc.data();
-        return AttendanceRecord(
-          personId: data['personId'] ?? '',
-          personName: data['personName'] ?? '',
-          employeeId: data['employeeId'] ?? '',
-          timestamp: DateTime.parse(data['timestamp']),
-          confidence: (data['confidence'] ?? 0.0).toDouble(),
-          type: data['type'] ?? 'check_in',
-        );
-      }).toList();
+        
+        // Check for 'events' array (support multiple check-ins/outs per day)
+        if (data['events'] != null && data['events'] is List) {
+          final events = List<Map<String, dynamic>>.from(
+            (data['events'] as List).map((e) => Map<String, dynamic>.from(e as Map))
+          );
+          
+          for (var event in events) {
+            final type = event['type'] ?? 'check_in';
+            final timeStr = event['time'] as String?;
+            if (timeStr != null) {
+              firebaseList.add(AttendanceRecord(
+                personId: data['personId'] ?? '',
+                personName: data['personName'] ?? '',
+                employeeId: data['employeeId'] ?? '',
+                timestamp: DateTime.parse(timeStr),
+                confidence: (event['confidence'] ?? 0.0).toDouble(),
+                type: type,
+              ));
+            }
+          }
+        } else {
+          // Backward compatibility: use top-level fields
+          firebaseList.add(AttendanceRecord(
+            personId: data['personId'] ?? '',
+            personName: data['personName'] ?? '',
+            employeeId: data['employeeId'] ?? '',
+            timestamp: DateTime.parse(data['timestamp']),
+            confidence: (data['confidence'] ?? 0.0).toDouble(),
+            type: data['type'] ?? 'check_in',
+          ));
+        }
+      }
 
       // Sort by timestamp descending
       firebaseList.sort((a, b) => b.timestamp.compareTo(a.timestamp));

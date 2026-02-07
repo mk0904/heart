@@ -69,6 +69,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     _controller = CameraController(
       _cameras![cameraIndex],
       ResolutionPreset.medium,
+      enableAudio: false,
     );
 
     try {
@@ -95,18 +96,33 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       _isProcessing = true;
     });
 
+    // Pause potential stream if we had one (here we don't, but good practice)
+    
     try {
       final image = await _controller!.takePicture();
       final imageFile = File(image.path);
       final imageBytes = await imageFile.readAsBytes();
+      
+      // Decode image to handle orientation/EXIF automatically
       final decodedImage = img.decodeImage(imageBytes);
 
       if (decodedImage == null) {
         throw Exception('Failed to decode image');
       }
 
-      final inputImage = InputImage.fromFilePath(image.path);
+      // Save the normalized (rotated) image to a temp file for consistent detection
+      // This strips strict EXIF rotation tags that might confuse ML Kit on iOS
+      final tempDir = Directory.systemTemp;
+      final fixedPath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_attendance_fixed.jpg';
+      final fixedFile = File(fixedPath);
+      await fixedFile.writeAsBytes(img.encodeJpg(decodedImage));
+
+      // Use fixed file for detection
+      final inputImage = InputImage.fromFilePath(fixedPath);
       final face = await _faceDetectionService.detectFace(inputImage);
+
+      // Clean up temp file immediately after detection usage attempt
+      if (await fixedFile.exists()) await fixedFile.delete();
 
       if (face == null) {
         throw Exception('No face detected. Please ensure your face is clearly visible.');
@@ -121,10 +137,10 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       final person = await _attendanceService.recognizePerson(embedding);
 
       if (person == null) {
-        throw Exception('Person not recognized. Please register first.');
+        throw Exception('Person not recognized using face. Please register first.');
       }
 
-      // Calculate confidence (using cosine similarity)
+      // Calculate confidence
       final confidence = _faceRecognitionService.cosineSimilarity(
         embedding,
         person.faceEmbedding,
@@ -136,10 +152,9 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         throw Exception('Attendance can only be marked during college hours');
       }
 
-      // Check geofence validation (skip if offline)
+      // Check geofence validation
       final geofenceResult = await _attendanceService.validateGeofence();
       if (!geofenceResult['valid'] && geofenceResult['message'] != 'College details not found') {
-        // Only fail if it's a real geofence issue, not just missing college details
         if (geofenceResult['message']?.contains('km away') ?? false) {
           throw Exception(geofenceResult['message'] ?? 'Location validation failed');
         }
@@ -152,10 +167,8 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       );
 
       if (mounted) {
-        // Always navigate back, even if sync failed (it will sync later)
         Navigator.pop(context);
         
-        // Show success message after navigation
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -190,8 +203,8 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
               ),
               TextButton(
                 onPressed: () {
-                  Navigator.pop(context); // Close dialog
-                  Navigator.pop(context); // Go back to attendance screen
+                  Navigator.pop(context);
+                  Navigator.pop(context);
                 },
                 child: const Text('Cancel'),
               ),
@@ -200,7 +213,6 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         );
       }
     } finally {
-      // Ensure processing flag is reset
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -243,17 +255,19 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       body: _isInitialized && _controller != null
           ? Stack(
               children: [
-                // Camera Preview (preserve aspect ratio to avoid horizontal squeeze)
+                // Camera Preview (Full Screen)
                 Positioned.fill(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final aspectRatio = _controller!.value.aspectRatio;
-                      if (aspectRatio <= 0) {
-                        return const Center(child: CircularProgressIndicator(color: Colors.white));
-                      }
-                      return Center(
-                        child: AspectRatio(
-                          aspectRatio: aspectRatio,
+                      final size = constraints.biggest;
+                      var scale = size.aspectRatio * _controller!.value.aspectRatio;
+
+                      // to prevent scaling down, invert the value
+                      if (scale < 1) scale = 1 / scale;
+
+                      return Transform.scale(
+                        scale: scale,
+                        child: Center(
                           child: CameraPreview(_controller!),
                         ),
                       );
@@ -289,6 +303,13 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                       style: TextStyle(
                         fontSize: 18,
                         color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            blurRadius: 4,
+                            color: Colors.black,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -357,6 +378,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                                     shape: BoxShape.circle,
                                     color: Colors.white,
                                   ),
+                                  child: const Icon(Icons.camera_alt, color: Colors.black, size: 32),
                                 ),
                         ),
                       ),
@@ -398,5 +420,4 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
             ),
     );
   }
-
 }

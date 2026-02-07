@@ -59,6 +59,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       // Check Firebase user document for face registration
       final user = await _authService.getCurrentUser();
       if (user != null) {
+        // First ensure we have the latest face embedding from Firebase
+        // This handles the case where user registered on another device
+        await _attendanceService.syncCurrentUserEmbedding();
+
         // Run parallel operations for faster loading
         final results = await Future.wait([
           // Check local registration (fast - Hive query)
