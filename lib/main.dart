@@ -11,25 +11,8 @@ import 'screens/welcome_screen.dart';
 import 'screens/complete_profile_screen.dart';
 import 'theme/app_theme.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Firebase
-  await Firebase.initializeApp();
-
-  // Initialize notification service
-  final notificationService = NotificationService();
-  await notificationService.initialize();
-
-  final attendanceService = AttendanceService();
-  await attendanceService.init();
-  
-  // Start auto-sync for offline attendance records
-  attendanceService.startAutoSync();
-  
-  // Also sync immediately if online
-  attendanceService.syncPendingAttendance();
-
   runApp(const MyApp());
 }
 
@@ -64,18 +47,61 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  String _loadingText = "Initializing...";
+
   @override
   void initState() {
     super.initState();
-    // Navigate to AuthWrapper after 2 seconds
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AuthWrapper()),
-        );
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      // 1. Initialize Firebase
+      setState(() => _loadingText = "Connecting...");
+      await Firebase.initializeApp();
+
+      // 2. Initialize Notification Service
+      setState(() => _loadingText = "Setting up notifications...");
+      final notificationService = NotificationService();
+      try {
+         await notificationService.initialize();
+      } catch (e) {
+         print('Notification init warning: $e');
       }
-    });
+
+      // 3. Initialize Attendance Service
+      setState(() => _loadingText = "Starting services...");
+      final attendanceService = AttendanceService();
+      // Add timeout to prevent hang
+      try {
+        await attendanceService.init().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            print('Attendance service init timed out - continuing anyway');
+          }
+        );
+      } catch (e) {
+        print('Attendance init warning: $e');
+      }
+      
+      // Start background tasks
+      attendanceService.startAutoSync();
+      attendanceService.syncPendingAttendance();
+
+    } catch (e) {
+      print('Initialization error: $e');
+      // Proceed even if error matches to allow user to reach AuthWrapper (which handles auth state)
+    } finally {
+      if (mounted) {
+         // Ensure splash is visible for at least a moment or until done
+         // Transition to AuthWrapper
+         Navigator.pushReplacement(
+           context,
+           MaterialPageRoute(builder: (context) => const AuthWrapper()),
+         );
+      }
+    }
   }
 
   @override
@@ -83,11 +109,27 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
-        child: Image.asset(
-          'assets/images/icon.png',
-          width: 250,
-          height: 250,
-          fit: BoxFit.contain,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/images/icon.png',
+              width: 250,
+              height: 250,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 20),
+            if (_loadingText.isNotEmpty)
+              Text(
+                _loadingText,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(strokeWidth: 2),
+          ],
         ),
       ),
     );

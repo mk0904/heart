@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -61,11 +61,11 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
     
     try {
       final user = await _firestoreService.getUser(createdBy);
-      if (user != null) {
-        setState(() {
-          _authorName = user.name ?? 'User';
-        });
-      }
+        if (user != null) {
+          setState(() {
+            _authorName = user.name;
+          });
+        }
     } catch (e) {
       // Handle error
     }
@@ -165,7 +165,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
         .listen((snapshot) {
       if (!snapshot.exists) return;
       
-      final data = snapshot.data() as Map<String, dynamic>?;
+      final data = snapshot.data();
       if (data == null) return;
       
       // Update comments
@@ -178,7 +178,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
         });
       
       setState(() {
-        _comments = sorted.map((c) => c as Map<String, dynamic>).toList();
+        _comments = sorted.map((c) => c).toList();
       });
       
       // Update attachments
@@ -198,7 +198,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'text': text,
         'userId': _userId!,
-        'userName': user.name ?? user.email ?? 'User',
+        'userName': user.name,
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       };
       
@@ -266,6 +266,8 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
               setState(() {
                 _downloadingFileId = attachmentId;
               });
+
+              final messenger = ScaffoldMessenger.of(context);
               
               try {
                 // Try to launch the URL
@@ -275,7 +277,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
                   mode: LaunchMode.externalApplication,
                 );
                 
-                if (!launched && mounted) {
+                if (!launched) {
                   // If launch failed, try with platformDefault mode
                   await launchUrl(
                     uri,
@@ -283,14 +285,12 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
                   );
                 }
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Could not open the file: ${e.toString()}'),
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                }
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Could not open the file: ${e.toString()}'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
               } finally {
                 if (mounted) {
                   setState(() {
@@ -351,6 +351,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(AppTheme.spacingLG),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Circular Content
                     _buildCircularCard(),
@@ -513,7 +514,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
                               width: 32,
                               height: 32,
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
+                                color: Colors.white.withValues(alpha: 0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -606,22 +607,30 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
                 controller: _commentController,
                 maxLines: 3,
                 onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'Add a comment...',
-                  hintStyle: const TextStyle(color: AppTheme.textLight),
-                  filled: true,
-                  fillColor: AppTheme.backgroundDark,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-                    borderSide: const BorderSide(color: AppTheme.borderLight),
+                  decoration: InputDecoration(
+                    hintText: 'Add a comment...',
+                    hintStyle: const TextStyle(color: AppTheme.textSecondary),
+                    filled: true,
+                    fillColor: AppTheme.background,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+                      borderSide: const BorderSide(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 1),
+                    ),
+                    contentPadding: const EdgeInsets.fromLTRB(
+                      AppTheme.spacingMD,
+                      AppTheme.spacingMD,
+                      50,
+                      AppTheme.spacingMD,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.only(
-                    left: AppTheme.spacingMD,
-                    right: 50,
-                    top: AppTheme.spacingBase,
-                    bottom: AppTheme.spacingBase,
-                  ),
-                ),
               ),
               Positioned(
                 bottom: AppTheme.spacingSM,
@@ -633,7 +642,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
                     height: 36,
                     decoration: BoxDecoration(
                       color: _commentController.text.trim().isEmpty
-                          ? AppTheme.textDisabled.withOpacity(0.5)
+                          ? AppTheme.textDisabled.withValues(alpha: 0.5)
                           : AppTheme.primary,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppTheme.borderLight, width: 0.5),

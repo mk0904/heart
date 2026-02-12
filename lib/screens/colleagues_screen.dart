@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../models/user_profile.dart';
+
 
 class ColleaguesScreen extends StatefulWidget {
   const ColleaguesScreen({super.key});
@@ -24,8 +24,6 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
   String? _userCollegeId;
   String? _currentUserRole;
   String? _currentUserId;
-  Map<String, dynamic>? _selectedUser;
-  bool _showToggleModal = false;
 
   @override
   void initState() {
@@ -136,10 +134,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
 
   void _handleUserPress(Map<String, dynamic> user) {
     if (_currentUserRole == 'principal') {
-      setState(() {
-        _selectedUser = user;
-        _showToggleModal = true;
-      });
+      _showUserStatusModal(user);
     }
   }
 
@@ -158,8 +153,10 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
       if (filteredIndex != -1) {
         _filteredUsers[filteredIndex]['active'] = newStatus;
       }
-      _showToggleModal = false;
     });
+
+    // Close the modal
+    Navigator.pop(context);
     
     try {
       await FirebaseFirestore.instance
@@ -201,67 +198,425 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Stack(
-        children: [
-          Scaffold(
-            backgroundColor: AppTheme.backgroundLight,
-            body: Column(
+      child: Scaffold(
+        backgroundColor: AppTheme.backgroundLight,
+        body: Column(
+          children: [
+            // Header
+            _buildHeader(),
+            
+            // Content
+            Expanded(
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
+                  // Search
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppTheme.spacingLG),
+                      child: _buildSearchBar(),
+                    ),
+                  ),
+                  
+                  // Users List
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
+                    sliver: _loading
+                        ? SliverToBoxAdapter(
+                            child: _buildSkeleton(),
+                          )
+                        : _filteredUsers.isEmpty
+                            ? SliverToBoxAdapter(
+                                child: _buildEmptyState(),
+                              )
+                            : SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, index) {
+                                    final user = _filteredUsers[index];
+                                    return _buildUserCard(user);
+                                  },
+                                  childCount: _filteredUsers.length,
+                                ),
+                              ),
+                  ),
+                  
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 90),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showUserStatusModal(Map<String, dynamic> user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) {
+          final isActive = user['active'] ?? true;
+          return Container(
+            decoration: const BoxDecoration(
+              color: AppTheme.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXL)),
+            ),
+            child: Column(
               children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: AppTheme.spacingMD),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.borderLight,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
                 // Header
-                _buildHeader(),
+                Container(
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'User Status',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.text,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: AppTheme.text),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
                 
                 // Content
                 Expanded(
-                  child: CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      // Search
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppTheme.spacingLG),
-                          child: _buildSearchBar(),
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(AppTheme.spacingLG),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Profile Section
+                        Center(
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary,
+                                  shape: BoxShape.circle,
+                                  boxShadow: AppTheme.shadowBase,
+                                  border: Border.all(color: AppTheme.white, width: 4),
+                                  image: user['photoUrl'] != null && (user['photoUrl'] as String).isNotEmpty
+                                      ? DecorationImage(
+                                          image: NetworkImage(user['photoUrl'] as String),
+                                          fit: BoxFit.cover,
+                                        )
+                                      : null,
+                                ),
+                                child: user['photoUrl'] != null && (user['photoUrl'] as String).isNotEmpty
+                                    ? null
+                                    : Center(
+                                        child: Text(
+                                          (user['name'] ?? 'U')[0].toUpperCase(),
+                                          style: const TextStyle(
+                                            fontSize: 40,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppTheme.white,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                              const SizedBox(height: AppTheme.spacingMD),
+                              Text(
+                                user['name'] ?? 'User',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.text,
+                                ),
+                              ),
+                              const SizedBox(height: AppTheme.spacingXS),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppTheme.spacingMD,
+                                  vertical: AppTheme.spacingXS,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryLight,
+                                  borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+                                ),
+                                child: Text(
+                                  user['role'] ?? 'Not specified',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      
-                      // Users List
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
-                        sliver: _loading
-                            ? SliverToBoxAdapter(
-                                child: _buildSkeleton(),
-                              )
-                            : _filteredUsers.isEmpty
-                                ? SliverToBoxAdapter(
-                                    child: _buildEmptyState(),
-                                  )
-                                : SliverList(
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, index) {
-                                        final user = _filteredUsers[index];
-                                        return _buildUserCard(user);
-                                      },
-                                      childCount: _filteredUsers.length,
+                        
+                        const SizedBox(height: AppTheme.spacingXL),
+                        
+                        // Basic Info
+                        _buildInfoSection('Basic Information', [
+                          _buildInfoRow('Name', user['name'] ?? 'Not provided', Icons.person_outline),
+                          _buildInfoRow('Email', user['email'] ?? 'Not provided', Icons.email_outlined),
+                          _buildInfoRow('Phone', user['phoneNumber'] ?? 'Not provided', Icons.phone_outlined),
+                        ]),
+                        
+                        const SizedBox(height: AppTheme.spacingLG),
+
+                        // Employment Details
+                        _buildInfoSection('Employment Details', [
+                          _buildInfoRow('Employment Type', user['employmentType'] ?? 'Not specified', Icons.work_outline),
+                          _buildInfoRow('Pay Band', user['payBand'] ?? 'Not specified', Icons.attach_money),
+                          if (user['dateOfAppointment'] != null)
+                            _buildInfoRow('Date of Appointment', _formatDate(user['dateOfAppointment']), Icons.calendar_today_outlined),
+                          if (user['dateOfConfirmation'] != null)
+                            _buildInfoRow('Date of Confirmation', _formatDate(user['dateOfConfirmation']), Icons.verified_user_outlined),
+                          if (user['dateOfRetirement'] != null)
+                            _buildInfoRow('Date of Retirement', _formatDate(user['dateOfRetirement']), Icons.event_busy_outlined),
+                          _buildInfoRow('Government Quarter', user['govtQuarter'] == true ? 'Yes' : 'No', Icons.home_outlined),
+                        ]),
+                        
+                        const SizedBox(height: AppTheme.spacingLG),
+
+                        // Status Information
+                        _buildInfoSection('Status Information', [
+                          Container(
+                            padding: const EdgeInsets.all(AppTheme.spacingMD),
+                            decoration: BoxDecoration(
+                              color: isActive ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.error.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                              border: Border.all(
+                                color: isActive ? AppTheme.success.withValues(alpha: 0.3) : AppTheme.error.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      isActive ? Icons.check_circle_outline : Icons.block_outlined,
+                                      color: isActive ? AppTheme.success : AppTheme.error,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: AppTheme.spacingSM),
+                                    Text(
+                                      'Current Status',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: isActive ? AppTheme.success : AppTheme.error,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppTheme.spacingSM,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isActive ? AppTheme.success : AppTheme.error,
+                                    borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+                                  ),
+                                  child: Text(
+                                    isActive ? 'Active' : 'Inactive',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.white,
                                     ),
                                   ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppTheme.spacingSM),
+                          _buildInfoRow('Profile Completed', user['profileCompleted'] == true ? 'Yes' : 'No', Icons.assignment_turned_in_outlined),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                // Actions
+                Container(
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  decoration: BoxDecoration(
+                    color: AppTheme.white,
+                    border: Border(
+                      top: BorderSide(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
                       ),
-                      
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 90),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                            side: const BorderSide(color: AppTheme.borderLight),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppTheme.spacingMD),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                             _toggleUserStatus(user);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isActive ? AppTheme.error : AppTheme.success,
+                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            ),
+                          ),
+                          child: Text(
+                            isActive ? 'Deactivate' : 'Activate',
+                            style: const TextStyle(
+                              color: AppTheme.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-          ),
-          
-          // Toggle Modal for Principals
-          if (_showToggleModal && _selectedUser != null) _buildToggleModal(),
-        ],
+          );
+        },
       ),
     );
   }
 
+  String _formatDate(String isoString) {
+    try {
+      final date = DateTime.parse(isoString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return isoString;
+    }
+  }
+
+  Widget _buildInfoSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text( // Only showing the first line to verify replacement
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.text,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingMD),
+        ...children,
+        const SizedBox(height: AppTheme.spacingLG),
+        const Divider(height: 1, color: AppTheme.borderLight),
+        const SizedBox(height: AppTheme.spacingLG),
+      ],
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, [IconData? icon]) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTheme.spacingMD),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.background,
+                borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+              ),
+              child: Icon(icon, size: 20, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(width: AppTheme.spacingMD),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -269,20 +624,27 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
         vertical: AppTheme.spacingBase,
       ),
       decoration: BoxDecoration(
-        color: AppTheme.background,
+        color: AppTheme.white,
         border: Border(
           bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Colleagues',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.text,
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppTheme.text, size: 22),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'Colleagues',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.text,
+                ),
+              ),
             ),
           ),
           if (_showSearchIcon)
@@ -311,7 +673,9 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
                   ),
                 ),
               ),
-            ),
+            )
+          else
+            const SizedBox(width: 48),
         ],
       ),
     );
@@ -374,17 +738,25 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
                 decoration: BoxDecoration(
                   color: AppTheme.primary,
                   shape: BoxShape.circle,
+                  image: user['photoUrl'] != null && (user['photoUrl'] as String).isNotEmpty
+                      ? DecorationImage(
+                          image: NetworkImage(user['photoUrl'] as String),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
                 ),
-                child: Center(
-                  child: Text(
-                    (user['name'] ?? 'U')[0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.white,
-                    ),
-                  ),
-                ),
+                child: user['photoUrl'] != null && (user['photoUrl'] as String).isNotEmpty
+                    ? null
+                    : Center(
+                        child: Text(
+                          (user['name'] ?? 'U')[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.white,
+                          ),
+                        ),
+                      ),
               ),
               if (isActive)
                 Positioned(
@@ -460,7 +832,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
               onChanged: (value) {
                 _handleUserPress(user);
               },
-              activeColor: AppTheme.primary,
+              activeTrackColor: AppTheme.primary,
             )
           else
             const Icon(
@@ -557,284 +929,6 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
           ],
         ),
       )),
-    );
-  }
-
-  Widget _buildToggleModal() {
-    final user = _selectedUser!;
-    final isActive = user['active'] ?? true;
-    
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _showToggleModal = false;
-        });
-      },
-      child: Container(
-        color: Colors.black54,
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.8,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: AppTheme.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXL)),
-              ),
-              child: Column(
-                children: [
-                  // Header
-                  Container(
-                    padding: const EdgeInsets.all(AppTheme.spacingLG),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: AppTheme.borderLight, width: 1),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'User Status',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.text,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: AppTheme.text),
-                          onPressed: () {
-                            setState(() {
-                              _showToggleModal = false;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  // User Info
-                  Expanded(
-                    child: SingleChildScrollView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.all(AppTheme.spacingLG),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Profile Section
-                          Center(
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      (user['name'] ?? 'U')[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: AppTheme.spacingMD),
-                                Text(
-                                  user['name'] ?? 'User',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.text,
-                                  ),
-                                ),
-                                const SizedBox(height: AppTheme.spacingXS),
-                                Text(
-                                  user['role'] ?? 'Not specified',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: AppTheme.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          
-                          const SizedBox(height: AppTheme.spacingXL),
-                          
-                          // Basic Info
-                          _buildInfoSection('Basic Information', [
-                            _buildInfoRow('Name', user['name'] ?? 'Not provided'),
-                            _buildInfoRow('Email', user['email'] ?? 'Not provided'),
-                            _buildInfoRow('Phone', user['phoneNumber'] ?? 'Not provided'),
-                            _buildInfoRow('Role', user['role'] ?? 'Not specified'),
-                          ]),
-                          
-                          // Employment Details
-                          _buildInfoSection('Employment Details', [
-                            _buildInfoRow('Employment Type', user['employmentType'] ?? 'Not specified'),
-                            _buildInfoRow('Pay Band', user['payBand'] ?? 'Not specified'),
-                            if (user['dateOfAppointment'] != null)
-                              _buildInfoRow('Date of Appointment', user['dateOfAppointment']),
-                            if (user['dateOfConfirmation'] != null)
-                              _buildInfoRow('Date of Confirmation', user['dateOfConfirmation']),
-                            if (user['dateOfRetirement'] != null)
-                              _buildInfoRow('Date of Retirement', user['dateOfRetirement']),
-                            _buildInfoRow('Government Quarter', user['govtQuarter'] == true ? 'Yes' : 'No'),
-                          ]),
-                          
-                          // Status Information
-                          _buildInfoSection('Status Information', [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Current Status:',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: AppTheme.textSecondary,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: isActive ? AppTheme.primary : AppTheme.borderLight,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: AppTheme.spacingXS),
-                                    Text(
-                                      isActive ? 'Active' : 'Inactive',
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        color: AppTheme.text,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            _buildInfoRow('Profile Completed', user['profileCompleted'] == true ? 'Yes' : 'No'),
-                          ]),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // Actions
-                  Container(
-                    padding: const EdgeInsets.all(AppTheme.spacingLG),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        top: BorderSide(color: AppTheme.borderLight, width: 1),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              setState(() {
-                                _showToggleModal = false;
-                              });
-                            },
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
-                              side: const BorderSide(color: AppTheme.borderLight),
-                            ),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(color: AppTheme.textSecondary),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppTheme.spacingMD),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => _toggleUserStatus(user),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primary,
-                              padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
-                            ),
-                            child: Text(
-                              isActive ? 'Deactivate' : 'Activate',
-                              style: const TextStyle(color: AppTheme.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoSection(String title, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: AppTheme.text,
-          ),
-        ),
-        const SizedBox(height: AppTheme.spacingSM),
-        ...children,
-        const SizedBox(height: AppTheme.spacingLG),
-        const Divider(height: 1, color: AppTheme.borderLight),
-        const SizedBox(height: AppTheme.spacingLG),
-      ],
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppTheme.spacingSM),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppTheme.text,
-              ),
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -24,6 +24,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   String _historyFilter = 'all'; // 'all', 'check-in', 'check-out'
   List<AttendanceRecord> _historyRecords = [];
   bool _isLoadingHistory = false;
+  
+  // Eligibility State
+  bool _isCheckingEligibility = true;
+  bool _isEligible = false;
+  String? _eligibilityMessage;
 
   @override
   void initState() {
@@ -33,6 +38,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _checkEnrollmentStatus();
     // Load history separately (non-blocking, can show loading state)
     _loadHistoryRecords();
+    // Check eligibility logic (Time & Location)
+    _checkEligibility();
   }
 
   @override
@@ -71,8 +78,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           _attendanceService.isCurrentlyCheckedIn(),
         ]);
         
-        final hasLocalRegistration = results[0] as bool;
-        final isCheckedIn = results[1] as bool;
+        final hasLocalRegistration = results[0];
+        final isCheckedIn = results[1];
         
         // Update UI immediately with initial state
         if (mounted) {
@@ -146,7 +153,55 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     await Future.wait([
       _checkEnrollmentStatus(),
       _loadHistoryRecords(),
+      _checkEligibility(),
     ]);
+  }
+
+  Future<void> _checkEligibility() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isCheckingEligibility = true;
+      _eligibilityMessage = null;
+    });
+
+    try {
+      // 1. Check Time
+      final isWithinHours = await _attendanceService.isWithinCollegeHours();
+      if (!isWithinHours) {
+        if (mounted) {
+          setState(() {
+            _isEligible = false;
+            _eligibilityMessage = "Outside college hours";
+            _isCheckingEligibility = false;
+          });
+        }
+        return;
+      }
+
+      // 2. Check Location
+      // We use a shorter timeout or cached location if possible, 
+      // but for now we'll just await the standard check.
+      final geofenceResult = await _attendanceService.validateGeofence();
+      
+      if (mounted) {
+        setState(() {
+          _isEligible = geofenceResult['valid'];
+          _eligibilityMessage = geofenceResult['valid'] 
+              ? null 
+              : (geofenceResult['message'] ?? "Outside college campus");
+          _isCheckingEligibility = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isEligible = false;
+          _eligibilityMessage = "Unable to verify location";
+          _isCheckingEligibility = false;
+        });
+      }
+    }
   }
 
   @override
@@ -595,69 +650,82 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final buttonText = _isCheckedIn ? 'Check Out' : 'Check In';
     final buttonIcon = _isCheckedIn ? Icons.logout : Icons.login;
     
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: () async {
-          // Check if within college hours
-          final isWithinHours = await _attendanceService.isWithinCollegeHours();
-          if (!isWithinHours) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Attendance can only be marked during college hours'),
-                  backgroundColor: Colors.orange,
+    // Determine button state
+    final isEnabled = !_isCheckingEligibility && _isEligible;
+    final backgroundColor = _isCheckingEligibility 
+        ? AppTheme.textSecondary.withValues(alpha: 0.3)
+        : _isEligible
+            ? (_isCheckedIn ? Colors.orange : AppTheme.primary)
+            : AppTheme.textSecondary;
+            
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: isEnabled ? () async {
+              // Navigate immediately to camera screen
+              // Background validation will happen there as a safety check
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => MarkAttendanceScreen(
+                    isCheckIn: !_isCheckedIn,
+                  ),
                 ),
               );
-            }
-            return;
-          }
-
-          // Check geofence
-          final geofenceResult = await _attendanceService.validateGeofence();
-          if (!geofenceResult['valid']) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(geofenceResult['message'] ?? 'Location validation failed'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            }
-            return;
-          }
-
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => MarkAttendanceScreen(
-                isCheckIn: !_isCheckedIn,
+              // Reload status and history after marking attendance
+              await _checkEnrollmentStatus();
+              await _loadHistoryRecords();
+              // Re-check eligibility when coming back
+              _checkEligibility();
+            } : null,
+            icon: _isCheckingEligibility 
+                ? const SizedBox(
+                    width: 20, 
+                    height: 20, 
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
+                  )
+                : Icon(buttonIcon, color: AppTheme.white, size: 20),
+            label: Text(
+              _isCheckingEligibility ? 'Verifying...' : buttonText,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.white,
               ),
             ),
-          );
-          // Reload status and history after marking attendance
-          await _checkEnrollmentStatus();
-          await _loadHistoryRecords();
-        },
-        icon: Icon(buttonIcon, color: AppTheme.white, size: 20),
-        label: Text(
-          buttonText,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.white,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: backgroundColor,
+              disabledBackgroundColor: backgroundColor.withValues(alpha: 0.5),
+              padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              ),
+              elevation: 0,
+            ),
           ),
         ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _isCheckedIn ? Colors.orange : AppTheme.primary,
-          padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+        if (!_isEligible && !_isCheckingEligibility && _eligibilityMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 14, color: AppTheme.error),
+                const SizedBox(width: 4),
+                Text(
+                  _eligibilityMessage!,
+                  style: const TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
-          elevation: 0,
-        ),
-      ),
+      ],
     );
   }
 

@@ -21,10 +21,10 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   bool _submitting = false;
   bool _loadingSubmissions = false;
   bool _refreshing = false;
-  bool _modalVisible = false;
+
   
   Map<String, dynamic>? _collegeLocation;
-  Map<String, dynamic>? _selectedSubmission;
+
   String? _userId;
   
   final Map<String, Map<String, String>> _studentData = {
@@ -261,11 +261,11 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         'categoryTotals': categoryTotals,
         'totals': totals,
         'submittedBy': user.uid,
-        'submittedByName': user.name ?? user.email ?? 'Unknown',
+        'submittedByName': user.name,
         'submittedAt': FieldValue.serverTimestamp(),
         'collegeId': collegeId,
         'collegeName': user.college ?? 'Unknown College',
-        'role': user.role ?? 'Unknown',
+        'role': user.role,
       };
 
       if (_collegeLocation != null) {
@@ -345,60 +345,48 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   }
 
   void _openSubmissionModal(Map<String, dynamic> submission) {
-    setState(() {
-      _selectedSubmission = submission;
-      _modalVisible = true;
-    });
-  }
-
-  void _closeSubmissionModal() {
-    setState(() {
-      _modalVisible = false;
-      _selectedSubmission = null;
-    });
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _buildSubmissionBottomSheet(submission),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Stack(
-        children: [
-          Scaffold(
-            backgroundColor: AppTheme.backgroundLight,
-            body: Column(
-              children: [
-                // Header
-                _buildHeader(),
-                
-                // Content
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _onRefresh,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppTheme.spacingLG),
-                      child: Column(
-                        children: [
-                          // Form Card
-                          _buildFormCard(),
-                          
-                          // Student Data Input (shown when form is filled)
-                          if (_selectedStream.isNotEmpty && _selectedSemester.isNotEmpty && _selectedCourse.isNotEmpty)
-                            _buildStudentDataCard(),
-                          
-                          // Recent Submissions
-                          _buildRecentSubmissionsCard(),
-                        ],
-                      ),
-                    ),
+      child: Scaffold(
+        backgroundColor: AppTheme.backgroundLight,
+        body: Column(
+          children: [
+            // Header
+            _buildHeader(),
+            
+            // Content
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _onRefresh,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  child: Column(
+                    children: [
+                      // Form Card
+                      _buildFormCard(),
+                      
+                      // Student Data Input (shown when form is filled)
+                      if (_selectedStream.isNotEmpty && _selectedSemester.isNotEmpty && _selectedCourse.isNotEmpty)
+                        _buildStudentDataCard(),
+                      
+                      // Recent Submissions
+                      _buildRecentSubmissionsCard(),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-          
-          // Submission Detail Modal
-          if (_modalVisible && _selectedSubmission != null) _buildSubmissionModal(),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1078,89 +1066,91 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
     );
   }
 
-  Widget _buildSubmissionModal() {
-    final submission = _selectedSubmission!;
-    
-    return GestureDetector(
-      onTap: _closeSubmissionModal,
-      child: Container(
-        color: Colors.black54,
-        child: GestureDetector(
-          onTap: () {}, // Prevent closing when tapping inside
-          child: DraggableScrollableSheet(
-            initialChildSize: 0.9,
-            minChildSize: 0.5,
-            maxChildSize: 0.95,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: AppTheme.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(AppTheme.radiusXL),
-                    topRight: Radius.circular(AppTheme.radiusXL),
+  Widget _buildSubmissionBottomSheet(Map<String, dynamic> submission) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXL)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: AppTheme.spacingMD),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.borderLight,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                child: Column(
+              ),
+
+              // Header
+              Container(
+                padding: const EdgeInsets.all(AppTheme.spacingLG),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Header
-                    Container(
-                      padding: const EdgeInsets.all(AppTheme.spacing2XL),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: AppTheme.borderLight, width: 1),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Submission Details',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.text,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, color: AppTheme.text),
-                            onPressed: _closeSubmissionModal,
-                          ),
-                        ],
+                    const Text(
+                      'Submission Details',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.text,
                       ),
                     ),
-                    
-                    // Content
-                    Expanded(
-                      child: ListView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.all(AppTheme.spacingLG),
-                        children: [
-                          // Basic Info
-                          _buildModalCard(
-                            'Basic Information',
-                            [
-                              _buildModalInfoRow('Stream:', submission['stream']),
-                              _buildModalInfoRow('Semester:', submission['semester']),
-                              _buildModalInfoRow('Course:', submission['course']),
-                              _buildModalInfoRow('Submitted By:', submission['submittedByName'] ?? 'Unknown'),
-                              _buildModalInfoRow('Submitted At:', _formatDate(submission['submittedAt'])),
-                            ],
-                          ),
-                          
-                          const SizedBox(height: AppTheme.spacingMD),
-                          
-                          // Student Data
-                          _buildModalStudentDataCard(submission),
-                        ],
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppTheme.text),
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
-              );
-            },
+              ),
+              
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  child: Column(
+                    children: [
+                      // Basic Info
+                      _buildModalCard(
+                        'Basic Information',
+                        [
+                          _buildModalInfoRow('Stream:', submission['stream']),
+                          _buildModalInfoRow('Semester:', submission['semester']),
+                          _buildModalInfoRow('Course:', submission['course']),
+                          _buildModalInfoRow('Submitted By:', submission['submittedByName'] ?? 'Unknown'),
+                          _buildModalInfoRow('Submitted At:', _formatDate(submission['submittedAt'])),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: AppTheme.spacingMD),
+                      
+                      // Student Data
+                      _buildModalStudentDataCard(submission),
+                      const SizedBox(height: AppTheme.spacingXL),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

@@ -24,6 +24,7 @@ class _AccountScreenState extends State<AccountScreen> {
   String _userEmail = 'mk@gmail.com';
   String _userRole = 'Employee';
   String _userInitial = 'U';
+  String? _photoUrl;
   bool _loading = false;
   bool _isLoadingProfile = true;
 
@@ -46,6 +47,7 @@ class _AccountScreenState extends State<AccountScreen> {
           _userEmail = user.email ?? 'mk@gmail.com';
           _userRole = _formatRole(user.role ?? 'employee');
           _userInitial = _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U';
+          _photoUrl = user.photoUrl;
           _isLoadingProfile = false;
         });
       } else {
@@ -210,17 +212,25 @@ class _AccountScreenState extends State<AccountScreen> {
             decoration: BoxDecoration(
               color: AppTheme.primary,
               shape: BoxShape.circle,
+              image: _photoUrl != null && _photoUrl!.isNotEmpty
+                  ? DecorationImage(
+                      image: NetworkImage(_photoUrl!),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
-            child: Center(
-              child: Text(
-                _userInitial,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.white,
-                ),
-              ),
-            ),
+            child: _photoUrl != null && _photoUrl!.isNotEmpty
+                ? null
+                : Center(
+                    child: Text(
+                      _userInitial,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.white,
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(width: AppTheme.spacingBase),
           Expanded(

@@ -7,6 +7,7 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../navigation/main_tab_navigator.dart';
 import '../models/user_profile.dart';
+import '../services/firebase_storage_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final bool isCompleteProfile;
@@ -20,10 +21,13 @@ class EditProfileScreen extends StatefulWidget {
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
 
+
+
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuthService _authService = FirebaseAuthService();
+  final FirebaseStorageService _storageService = FirebaseStorageService();
   final ImagePicker _imagePicker = ImagePicker();
   
   final TextEditingController _nameController = TextEditingController();
@@ -252,12 +256,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       String? updatedPhotoUrl = _photoUrl;
 
-      // If new image selected, upload it (for now, we'll just store the local path)
-      // TODO: Upload to Firebase Storage and get URL
+      // If new image selected, upload it
       if (_selectedImage != null) {
-        // For now, we'll just mark that photo was updated
-        // In production, upload to Firebase Storage here
-        updatedPhotoUrl = _selectedImage!.path; // Temporary - should be Firebase Storage URL
+        updatedPhotoUrl = await _storageService.uploadProfileImage(
+          _selectedImage!,
+          _userId!,
+        );
       } else if (_photoUrl == null && _selectedImage == null) {
         // Photo was removed
         updatedPhotoUrl = null;
@@ -273,7 +277,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         if (_dateOfAppointment != null) 'dateOfAppointment': _dateOfAppointment!.toIso8601String(),
         if (_dateOfConfirmation != null) 'dateOfConfirmation': _dateOfConfirmation!.toIso8601String(),
         if (_dateOfRetirement != null) 'dateOfRetirement': _dateOfRetirement!.toIso8601String(),
-        if (updatedPhotoUrl != null) 'photoUrl': updatedPhotoUrl,
+        'photoUrl': updatedPhotoUrl, // Always update, can be null
         'profileCompleted': true,
         'updatedAt': DateTime.now().toIso8601String(),
       };

@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firestore_service.dart';
 import 'complete_profile_screen.dart';
+import '../services/firebase_storage_service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -13,6 +14,8 @@ class SignUpScreen extends StatefulWidget {
   State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
+
+
 class _SignUpScreenState extends State<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -20,6 +23,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _passwordController = TextEditingController();
   final _authService = FirebaseAuthService();
   final _firestoreService = FirestoreService();
+  final _storageService = FirebaseStorageService();
   final ImagePicker _imagePicker = ImagePicker();
   
   String? _selectedRole;
@@ -142,7 +146,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => _loading = true);
 
     try {
-      await _authService.signUp(
+      // 1. Create user account
+      final userProfile = await _authService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         fullName: _nameController.text.trim(),
@@ -150,6 +155,30 @@ class _SignUpScreenState extends State<SignUpScreen> {
         college: _shouldShowCollegeDropdown ? _selectedCollege : null,
         collegeId: _shouldShowCollegeDropdown ? _selectedCollege : null,
       );
+
+      // 2. Upload profile image if selected
+      if (_profileImage != null) {
+        try {
+          final photoUrl = await _storageService.uploadProfileImage(
+            _profileImage!,
+            userProfile.uid,
+          );
+          
+          // 3. Update user profile with photo URL
+          await _firestoreService.updateUser(
+            userProfile.uid,
+            {'photoUrl': photoUrl},
+          );
+        } catch (e) {
+          debugPrint('Failed to upload profile image: $e');
+          // Don't fail the whole sign up, just show a warning
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Account created, but failed to upload image: $e')),
+            );
+          }
+        }
+      }
 
       if (mounted) {
         Navigator.pushReplacement(

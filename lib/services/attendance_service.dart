@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/person.dart';
 import '../models/attendance_record.dart';
+import '../models/daily_attendance.dart';
 import 'face_recognition_service.dart';
 import 'firebase_auth_service.dart';
 import 'firestore_service.dart';
@@ -27,7 +28,7 @@ class AttendanceService {
   // Threshold for face recognition (Euclidean distance)
   // Lower threshold = stricter matching
   // Typical values: 0.6-1.2 (1.0 is a good starting point)
-  static const double recognitionThreshold = 1.0;
+  static const double recognitionThreshold = 1.1;
 
   // Private constructor for singleton
   AttendanceService._internal();
@@ -250,7 +251,7 @@ class AttendanceService {
 
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final dateStr = todayStart.toIso8601String().split('T')[0];
+    // final dateStr = todayStart.toIso8601String().split('T')[0];
 
     // Check Firebase first
     try {
@@ -567,7 +568,6 @@ class AttendanceService {
     required double confidence,
   }) async {
     final timestamp = DateTime.now();
-    final today = DateTime(timestamp.year, timestamp.month, timestamp.day);
 
     // Validate Check-in/Check-out pairing logic
     // We need to check existing records to ensure proper sequence
@@ -773,46 +773,7 @@ class AttendanceService {
     }
   }
 
-  /// Check if an attendance record already exists in Firebase
-  /// Uses employeeId, type, and timestamp (within 2 seconds) to detect duplicates
-  Future<bool> _checkRecordExists(String employeeId, DateTime timestamp, String type) async {
-    try {
-      // Get all records for this employee and type
-      final existingRecords = await _firestore
-          .collection('attendance')
-          .where('employeeId', isEqualTo: employeeId)
-          .where('type', isEqualTo: type)
-          .get();
-      
-      // Check if any record exists with the same timestamp (within 2 seconds tolerance)
-      // This handles cases where records are created within seconds of each other
-      for (var doc in existingRecords.docs) {
-        final data = doc.data();
-        final recordTimestampStr = data['timestamp'] as String?;
-        if (recordTimestampStr == null) continue;
-        
-        try {
-          final recordTimestamp = DateTime.parse(recordTimestampStr);
-          final timeDiff = (recordTimestamp.difference(timestamp)).abs();
-          
-          // If timestamp is within 2 seconds, consider it a duplicate
-          if (timeDiff.inSeconds <= 2) {
-            return true;
-          }
-        } catch (e) {
-          // Skip invalid timestamps
-          continue;
-        }
-      }
-      
-      return false;
-    } catch (e) {
-      print('Error checking if record exists: $e');
-      // If check fails, return false to allow sync
-      // Better to potentially have a duplicate than to miss a record
-      return false;
-    }
-  }
+
 
   /// Sync all unsynced attendance records to Firebase
   Future<void> syncPendingAttendance() async {
@@ -1150,6 +1111,79 @@ class AttendanceService {
     syncPendingAttendance();
     
     return records;
+  }
+
+  /// Get daily attendance history (grouped by day)
+  Future<List<DailyAttendance>> getDailyAttendanceHistory() async {
+    final user = await _authService.getCurrentUser();
+    if (user == null) {
+      if (!_isInitialized) return [];
+      // Group local records for offline caching support
+      final localRecords = _attendanceBox.values.toList();
+      return _groupRecordsByDay(localRecords);
+    }
+
+    try {
+      // Fetch from Firebase
+      final firebaseRecords = await _firestore
+          .collection('attendance')
+          .where('userId', isEqualTo: user.uid) // Use userId for daily records
+          .get();
+
+      final dailyRecords = firebaseRecords.docs.map((doc) {
+        final data = doc.data();
+        if (data['date'] != null) {
+          return DailyAttendance.fromFirestore(data);
+        }
+         // Fallback for old records without 'date' field
+         // This logic is slightly complex as it requires grouping manually
+         // We'll skip legacy handling for now as new records have 'date'
+         return null;
+      }).whereType<DailyAttendance>().toList();
+
+      dailyRecords.sort((a, b) => b.date.compareTo(a.date));
+      
+      return dailyRecords;
+    } catch (e) {
+      print('Error fetching daily attendance: $e');
+      return [];
+    }
+  }
+
+  List<DailyAttendance> _groupRecordsByDay(List<AttendanceRecord> records) {
+      final groups = <String, List<AttendanceRecord>>{};
+      for (var record in records) {
+        final date = record.timestamp.toIso8601String().split('T')[0];
+        if (!groups.containsKey(date)) {
+          groups[date] = [];
+        }
+        groups[date]!.add(record);
+      }
+
+      final dailyList = <DailyAttendance>[];
+      groups.forEach((date, dayRecords) {
+        // Create ad-hoc DailyAttendance from local records
+        dayRecords.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        final events = dayRecords.map((r) => {
+          'type': r.type,
+          'time': r.timestamp.toIso8601String(),
+          'confidence': r.confidence,
+        }).toList();
+
+        final firstIn = dayRecords.firstWhere((r) => r.type == 'check_in', orElse: () => dayRecords.first);
+        final lastOut = dayRecords.lastWhere((r) => r.type == 'check_out', orElse: () => dayRecords.last);
+        
+        dailyList.add(DailyAttendance(
+          date: date,
+          checkInTime: firstIn.type == 'check_in' ? firstIn.timestamp : null,
+          checkoutTime: lastOut.type == 'check_out' ? lastOut.timestamp : null,
+          events: events,
+          isPresent: true,
+        ));
+      });
+
+      dailyList.sort((a, b) => b.date.compareTo(a.date));
+      return dailyList;
   }
 
   List<AttendanceRecord> getAttendanceByPerson(String personId) {

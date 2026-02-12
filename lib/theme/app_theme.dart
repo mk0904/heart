@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppTheme {
   // Colors
@@ -90,11 +91,16 @@ class AppTheme {
         onBackground: text,
         onError: white,
       ),
-      scaffoldBackgroundColor: backgroundLight,
+      scaffoldBackgroundColor: white, // Changed from backgroundLight to white
       appBarTheme: const AppBarTheme(
-        backgroundColor: background,
+        backgroundColor: white,
         foregroundColor: text,
         elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.white, // Android
+          statusBarIconBrightness: Brightness.dark, // Android
+          statusBarBrightness: Brightness.light, // iOS (Light background = Dark icons)
+        ),
       ),
       cardTheme: CardThemeData(
         color: white,

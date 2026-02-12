@@ -6,10 +6,11 @@ import 'package:image/image.dart' as img;
 class FaceDetectionService {
   final FaceDetector faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableClassification: false,
-      enableLandmarks: false,
-      enableTracking: false,
+      enableClassification: true,
+      enableLandmarks: true,
+      enableTracking: true,
       minFaceSize: 0.1,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
 

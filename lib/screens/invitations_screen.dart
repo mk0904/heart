@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
@@ -300,10 +301,18 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Stack(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.white,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
+      child: SafeArea(
+        child: Scaffold(
+          backgroundColor: AppTheme.white,
+          body: Stack(
           children: [
             Column(
               children: [
@@ -362,6 +371,7 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
             if (_showInfoModal && _selectedInvitation != null) _buildInfoModal(),
           ],
         ),
+      ),
       ),
     );
   }

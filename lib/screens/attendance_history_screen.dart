@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/attendance_service.dart';
-import '../models/attendance_record.dart';
+import '../models/daily_attendance.dart';
 import '../theme/app_theme.dart';
 
 class AttendanceHistoryScreen extends StatefulWidget {
@@ -12,9 +12,9 @@ class AttendanceHistoryScreen extends StatefulWidget {
 
 class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   final AttendanceService _attendanceService = AttendanceService();
-  List<AttendanceRecord> _records = [];
+  List<DailyAttendance> _dailyRecords = [];
   bool _isLoading = true;
-  String _filter = 'all'; // 'all', 'check-in', 'check-out' (mapped to check_in/check_out)
+  String _filter = 'all'; // 'all', 'present', 'absent'
 
   @override
   void initState() {
@@ -28,19 +28,19 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     });
     
     try {
-      final allRecords = await _attendanceService.getAttendanceHistory();
-      // Map filter values to match model (check-in -> check_in, check-out -> check_out)
-      final filterValue = _filter == 'check-in' 
-          ? 'check_in' 
-          : _filter == 'check-out' 
-              ? 'check_out' 
-              : _filter;
-      final filtered = _filter == 'all'
-          ? allRecords
-          : allRecords.where((r) => r.type == filterValue).toList();
+      final allRecords = await _attendanceService.getDailyAttendanceHistory();
+      
+      // Filter logic
+      List<DailyAttendance> filtered = allRecords;
+      if (_filter == 'present') {
+        filtered = allRecords.where((d) => d.isPresent).toList();
+      } else if (_filter == 'absent') {
+        filtered = allRecords.where((d) => !d.isPresent).toList();
+      }
+
       if (mounted) {
         setState(() {
-          _records = filtered;
+          _dailyRecords = filtered;
           _isLoading = false;
         });
       }
@@ -53,31 +53,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     }
   }
 
-  String _formatDate(DateTime dateTime) {
-    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return '${weekdays[dateTime.weekday - 1]}, ${months[dateTime.month - 1]} ${dateTime.day}, ${dateTime.year}';
-  }
 
-  String _formatTime(DateTime dateTime) {
-    final hour = dateTime.hour > 12 ? dateTime.hour - 12 : dateTime.hour;
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    final period = dateTime.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $period';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +72,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : _records.isEmpty
+                  : _dailyRecords.isEmpty
                       ? _buildEmptyState()
                       : _buildRecordsList(),
             ),
@@ -139,11 +115,11 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
           ),
           const SizedBox(width: AppTheme.spacingSM),
           Expanded(
-            child: _buildFilterButton('check-in', 'Check In'),
+            child: _buildFilterButton('present', 'Present'),
           ),
           const SizedBox(width: AppTheme.spacingSM),
           Expanded(
-            child: _buildFilterButton('check-out', 'Check Out'),
+            child: _buildFilterButton('absent', 'Absent'),
           ),
         ],
       ),
@@ -225,41 +201,39 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
         _loadRecords();
       },
       child: ListView.builder(
-        itemCount: _records.length,
+        itemCount: _dailyRecords.length,
         padding: const EdgeInsets.all(AppTheme.spacingLG),
         itemBuilder: (context, index) {
-          final record = _records[index];
-          return _buildRecordCard(record);
+          return _buildDailyCard(_dailyRecords[index]);
         },
       ),
     );
   }
 
-  Widget _buildRecordCard(AttendanceRecord record) {
-    return Container(
+
+
+  Widget _buildDailyCard(DailyAttendance day) {
+    return Card(
       margin: const EdgeInsets.only(bottom: AppTheme.spacingMD),
-      padding: const EdgeInsets.all(AppTheme.spacingMD),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-        boxShadow: AppTheme.shadowBase,
-      ),
-      child: Column(
-        children: [
-          // Header
-          Row(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusBase)),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD, vertical: 8),
+          childrenPadding: const EdgeInsets.fromLTRB(AppTheme.spacingMD, 0, AppTheme.spacingMD, AppTheme.spacingMD),
+          title: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppTheme.backgroundDark,
+                  color: day.isPresent ? AppTheme.successLight : AppTheme.error.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.person,
-                  color: AppTheme.primary,
-                  size: 24,
+                child: Icon(
+                  day.isPresent ? Icons.check : Icons.close,
+                  color: day.isPresent ? AppTheme.success : AppTheme.error,
+                  size: 20,
                 ),
               ),
               const SizedBox(width: AppTheme.spacingMD),
@@ -268,87 +242,146 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      record.personName,
+                      _formatDate(DateTime.parse(day.date)),
                       style: const TextStyle(
-                        fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: AppTheme.text,
+                        fontSize: 16,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'ID: ${record.employeeId}',
-                      style: const TextStyle(
+                      day.isPresent 
+                        ? (day.autoCheckedOut 
+                            ? 'Auto Checked-Out' 
+                            : (day.checkoutTime != null ? 'Present' : 'Active'))
+                        : 'Absent',
+                      style: TextStyle(
+                        color: day.isPresent ? AppTheme.success : AppTheme.error,
+                        fontWeight: FontWeight.w500,
                         fontSize: 14,
-                        color: AppTheme.textSecondary,
                       ),
                     ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingMD,
-                  vertical: AppTheme.spacingXS,
-                ),
-                decoration: BoxDecoration(
-                  color: record.type == 'check_in'
-                      ? AppTheme.successLight
-                      : AppTheme.warningLight,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-                ),
-                child: Text(
-                  record.type == 'check_in' ? 'IN' : 'OUT',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.text,
-                  ),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: AppTheme.spacingMD),
-          // Details
-          Container(
-            padding: const EdgeInsets.only(top: AppTheme.spacingMD),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: AppTheme.borderLight, width: 1),
-              ),
-            ),
-            child: Column(
+          subtitle: day.isPresent ? Padding(
+            padding: const EdgeInsets.only(top: 8, left: 50),
+            child: Row(
               children: [
-                _buildDetailRow(
-                  Icons.access_time,
-                  '${_formatDate(record.timestamp)} at ${_formatTime(record.timestamp)}',
-                ),
-                const SizedBox(height: AppTheme.spacingXS),
-                _buildDetailRow(
-                  Icons.check_circle,
-                  'Confidence: ${(record.confidence * 100).toStringAsFixed(1)}%',
-                ),
+                if (day.checkInTime != null)
+                  _buildMiniTimePill('In: ${_formatTime(day.checkInTime!)}', AppTheme.primaryLight, AppTheme.primary),
+                const SizedBox(width: 8),
+                if (day.checkoutTime != null)
+                  _buildMiniTimePill('Out: ${_formatTime(day.checkoutTime!)}', AppTheme.secondary.withValues(alpha: 0.1), AppTheme.secondary),
               ],
             ),
-          ),
-        ],
+          ) : null,
+          children: [
+            const Divider(),
+            if (day.events.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text('No details available.', style: TextStyle(color: AppTheme.textSecondary)),
+              )
+            else
+              ...day.events.map((event) => _buildEventRow(event)),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildDetailRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: AppTheme.textSecondary),
-        const SizedBox(width: AppTheme.spacingSM),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppTheme.textSecondary,
-          ),
-        ),
-      ],
+  Widget _buildMiniTimePill(String text, Color bgColor, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, color: textColor, fontWeight: FontWeight.bold),
+      ),
     );
+  }
+
+  Widget _buildEventRow(Map<String, dynamic> event) {
+    final type = event['type'] ?? 'unknown';
+    final timeStr = event['time'] as String?;
+    final time = timeStr != null ? DateTime.parse(timeStr) : DateTime.now();
+    final isCheckIn = type == 'check_in';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+           Column(
+             children: [
+               Container(
+                 width: 2,
+                 height: 10,
+                 color: AppTheme.borderLight,
+               ),
+               Container(
+                 width: 10,
+                 height: 10,
+                 decoration: BoxDecoration(
+                   color: isCheckIn ? AppTheme.success : AppTheme.warning,
+                   shape: BoxShape.circle,
+                 ),
+               ),
+               Container(
+                 width: 2,
+                 height: 10,
+                 color: AppTheme.borderLight,
+               ),
+             ],
+           ),
+           const SizedBox(width: AppTheme.spacingMD),
+           Expanded(
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 Text(
+                   isCheckIn ? 'Checked In' : 'Checked Out',
+                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                 ),
+                 Text(
+                   _formatTime(time),
+                   style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                 ),
+               ],
+             ),
+           ),
+        ],
+      ),
+    );
+  }
+  String _formatDate(DateTime dateTime) {
+    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${weekdays[dateTime.weekday - 1]}, ${months[dateTime.month - 1]} ${dateTime.day}, ${dateTime.year}';
+  }
+
+  String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour > 12 ? dateTime.hour - 12 : dateTime.hour;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
   }
 }

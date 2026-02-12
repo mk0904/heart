@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_commons/google_mlkit_commons.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import '../services/face_detection_service.dart';
 import '../services/face_recognition_service.dart';
@@ -24,6 +27,16 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   bool _isInitialized = false;
   bool _isProcessing = false;
   bool _requestingPermission = false;
+  // bool _verifyingLocation = true; // Removed blocking state
+  
+  // Liveness check state
+  bool _livenessVerified = false;
+  String _feedbackText = "Position your face in the circle";
+  bool _isBlinking = false;
+  int _blinkCount = 0;
+  bool _canProcessStream = true;
+  DateTime? _lastProcessTime;
+  
   final FaceDetectionService _faceDetectionService = FaceDetectionService();
   final FaceRecognitionService _faceRecognitionService = FaceRecognitionService();
   final AttendanceService _attendanceService = AttendanceService();
@@ -31,7 +44,44 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   @override
   void initState() {
     super.initState();
+    // Run final verification in background without blocking camera
+    _finalVerification();
     _initializeCamera();
+  }
+
+  Future<void> _finalVerification() async {
+    // 1. Check Time (Silent check)
+    final isWithinHours = await _attendanceService.isWithinCollegeHours();
+    if (!mounted) return;
+    
+    if (!isWithinHours) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendance can only be marked during college hours'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      Navigator.pop(context);
+      return;
+    }
+
+    // 2. Check Geofence (Silent check)
+    final geofenceResult = await _attendanceService.validateGeofence();
+    if (!mounted) return;
+
+    if (!geofenceResult['valid']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(geofenceResult['message'] ?? 'You have moved out of the allowed area'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      Navigator.pop(context);
+      return;
+    }
+    
+    // If valid, just continue. No state update needed since we aren't blocking.
   }
 
   Future<void> _initializeCamera() async {
@@ -66,10 +116,14 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
     await _controller?.dispose();
 
+    // Use lower resolution for stream processing to be faster
     _controller = CameraController(
       _cameras![cameraIndex],
       ResolutionPreset.medium,
       enableAudio: false,
+      imageFormatGroup: Platform.isAndroid 
+          ? ImageFormatGroup.nv21 
+          : ImageFormatGroup.bgra8888,
     );
 
     try {
@@ -79,6 +133,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
           _cameraIndex = cameraIndex;
           _isInitialized = true;
         });
+        _startImageStream();
       }
     } catch (e) {
       if (mounted) {
@@ -89,6 +144,186 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     }
   }
 
+  void _startImageStream() {
+    if (_controller == null) return;
+    
+    _controller!.startImageStream((CameraImage image) {
+      if (_isProcessing || _livenessVerified || !_canProcessStream) return;
+      
+      // Throttle processing to ~5fps to save battery and CPU
+      final now = DateTime.now();
+      if (_lastProcessTime != null && 
+          now.difference(_lastProcessTime!).inMilliseconds < 200) {
+        return;
+      }
+      _lastProcessTime = now;
+
+      _processCameraImage(image);
+    });
+  }
+
+  Future<void> _processCameraImage(CameraImage image) async {
+    _canProcessStream = false;
+    
+    try {
+      final inputImage = _inputImageFromCameraImage(image);
+      if (inputImage == null) {
+        _canProcessStream = true;
+        return;
+      }
+      
+      final faces = await _faceDetectionService.faceDetector.processImage(inputImage);
+      
+      if (mounted) {
+        if (faces.isEmpty) {
+          setState(() {
+            _feedbackText = "No face detected";
+            _isBlinking = false;
+          });
+        } else if (faces.length > 1) {
+           setState(() {
+            _feedbackText = "Multiple faces detected";
+             _isBlinking = false;
+          });
+        } else {
+          final face = faces.first;
+          _checkLiveness(face);
+        }
+      }
+    } catch (e) {
+      // print("Error processing stream: $e");
+    } finally {
+      if (mounted) {
+         _canProcessStream = true; 
+      }
+    }
+  }
+
+  void _checkLiveness(Face face) {
+    // Face is detected
+    final leftOpen = face.leftEyeOpenProbability;
+    final rightOpen = face.rightEyeOpenProbability;
+    
+    if (leftOpen == null || rightOpen == null) {
+      setState(() {
+        _feedbackText = "Keep face steady";
+      });
+      return;
+    }
+
+    final isEyesClosed = leftOpen < 0.35 && rightOpen < 0.35;
+    final isEyesOpen = leftOpen > 0.85 && rightOpen > 0.85;
+
+    if (_livenessVerified) return;
+
+    if (isEyesOpen) {
+      if (_isBlinking) {
+        // Was blinking, now open -> Blink completed!
+        _blinkCount++;
+        setState(() {
+          _isBlinking = false;
+          if (_blinkCount >= 1) {
+             _livenessVerified = true;
+             _feedbackText = "Verified! Marking attendance...";
+             // Auto-capture after verification
+             _stopStreamAndCapture();
+          } else {
+            _feedbackText = "Blink detected. Do it once more.";
+          }
+        });
+      } else {
+         setState(() {
+          _feedbackText = "Please blink to verify you are human";
+        });
+      }
+    } else if (isEyesClosed) {
+      setState(() {
+        _isBlinking = true;
+        _feedbackText = "Eyes closed...";
+      });
+    } else {
+       setState(() {
+        _feedbackText = "Please blink clearly";
+      });
+    }
+  }
+
+  Future<void> _stopStreamAndCapture() async {
+    await _controller?.stopImageStream();
+    
+    // Slight delay to allow user to open eyes fully and stabilize
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    _captureAndMarkAttendance();
+  }
+
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    if (_controller == null) return null;
+
+    final camera = _cameras![_cameraIndex];
+    final sensorOrientation = camera.sensorOrientation;
+    
+    InputImageRotation? rotation;
+    if (Platform.isIOS) {
+      rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    } else if (Platform.isAndroid) {
+      var rotationCompensation = _orientations[_controller!.value.deviceOrientation];
+      if (rotationCompensation == null) return null;
+      if (camera.lensDirection == CameraLensDirection.front) {
+        // front-facing
+        rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
+      } else {
+        // back-facing
+        rotationCompensation = (sensorOrientation - rotationCompensation + 360) % 360;
+      }
+      rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
+    }
+    
+    if (rotation == null) return null;
+
+    InputImageFormat? format;
+    if (Platform.isIOS) {
+      if (image.format.group == ImageFormatGroup.bgra8888) {
+        format = InputImageFormat.bgra8888;
+      }
+    } else if (Platform.isAndroid) {
+      if (image.format.group == ImageFormatGroup.nv21) {
+        format = InputImageFormat.nv21;
+      } else if (image.format.group == ImageFormatGroup.yuv420) {
+        format = InputImageFormat.nv21; // camera package often uses yuv420 for nv21-like data
+      }
+    }
+    
+    if (format == null) return null;
+
+    // Basic construction for NV21 (Android) and BGRA8888 (iOS)
+    if (image.planes.isEmpty) return null;
+    
+    // Calculate total bytes
+    final bytes = WriteBuffer();
+    for (final plane in image.planes) {
+      bytes.putUint8List(plane.bytes);
+    }
+    final allBytes = bytes.done().buffer.asUint8List();
+    
+    return InputImage.fromBytes(
+       bytes: allBytes,
+       metadata: InputImageMetadata(
+         size: Size(image.width.toDouble(), image.height.toDouble()),
+         rotation: rotation,
+         format: format,
+         bytesPerRow: image.planes[0].bytesPerRow,
+       ),
+    );
+  }
+  
+  final _orientations = {
+    DeviceOrientation.portraitUp: 0,
+    DeviceOrientation.landscapeLeft: 90,
+    DeviceOrientation.portraitDown: 180,
+    DeviceOrientation.landscapeRight: 270,
+  };
+
   Future<void> _captureAndMarkAttendance() async {
     if (_controller == null || _isProcessing) return;
 
@@ -96,36 +331,31 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       _isProcessing = true;
     });
 
-    // Pause potential stream if we had one (here we don't, but good practice)
-    
     try {
       final image = await _controller!.takePicture();
       final imageFile = File(image.path);
       final imageBytes = await imageFile.readAsBytes();
       
-      // Decode image to handle orientation/EXIF automatically
       final decodedImage = img.decodeImage(imageBytes);
 
       if (decodedImage == null) {
         throw Exception('Failed to decode image');
       }
 
-      // Save the normalized (rotated) image to a temp file for consistent detection
-      // This strips strict EXIF rotation tags that might confuse ML Kit on iOS
       final tempDir = Directory.systemTemp;
       final fixedPath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_attendance_fixed.jpg';
       final fixedFile = File(fixedPath);
       await fixedFile.writeAsBytes(img.encodeJpg(decodedImage));
 
-      // Use fixed file for detection
       final inputImage = InputImage.fromFilePath(fixedPath);
       final face = await _faceDetectionService.detectFace(inputImage);
 
-      // Clean up temp file immediately after detection usage attempt
       if (await fixedFile.exists()) await fixedFile.delete();
 
       if (face == null) {
-        throw Exception('No face detected. Please ensure your face is clearly visible.');
+        // If liveness was verified but final capture failed to find face (motion blur etc)
+        // We might want to retry or ask user to try again
+        throw Exception('Face detection failed on capture. Please try again.');
       }
 
       final croppedFace = await _faceDetectionService.cropFace(decodedImage, face);
@@ -140,19 +370,16 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         throw Exception('Person not recognized using face. Please register first.');
       }
 
-      // Calculate confidence
       final confidence = _faceRecognitionService.cosineSimilarity(
         embedding,
         person.faceEmbedding,
       );
 
-      // Check time validation
       final isWithinHours = await _attendanceService.isWithinCollegeHours();
       if (!isWithinHours) {
         throw Exception('Attendance can only be marked during college hours');
       }
 
-      // Check geofence validation
       final geofenceResult = await _attendanceService.validateGeofence();
       if (!geofenceResult['valid'] && geofenceResult['message'] != 'College details not found') {
         if (geofenceResult['message']?.contains('km away') ?? false) {
@@ -185,9 +412,15 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       }
     } catch (e) {
       if (mounted) {
+        // Reset state to allow retry
         setState(() {
           _isProcessing = false;
+          _livenessVerified = false;
+          _blinkCount = 0;
+          _feedbackText = "Please try again";
         });
+        // Restart stream for retry
+        _startImageStream();
         
         showDialog(
           context: context,
@@ -199,24 +432,11 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                 onPressed: () {
                   Navigator.pop(context);
                 },
-                child: const Text('Try Again'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
-                child: const Text('Cancel'),
+                child: const Text('OK'),
               ),
             ],
           ),
         );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
       }
     }
   }
@@ -226,6 +446,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     _controller?.dispose();
     _faceDetectionService.dispose();
     _faceRecognitionService.dispose();
+    _livenessVerified = false;
     super.dispose();
   }
 
@@ -234,19 +455,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     if (_requestingPermission) {
       return Scaffold(
         backgroundColor: Colors.black,
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: AppTheme.primary),
-              SizedBox(height: AppTheme.spacingLG),
-              Text(
-                'Requesting camera permission...',
-                style: TextStyle(color: AppTheme.text),
-              ),
-            ],
-          ),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -255,16 +464,12 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       body: _isInitialized && _controller != null
           ? Stack(
               children: [
-                // Camera Preview (Full Screen)
                 Positioned.fill(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final size = constraints.biggest;
                       var scale = size.aspectRatio * _controller!.value.aspectRatio;
-
-                      // to prevent scaling down, invert the value
                       if (scale < 1) scale = 1 / scale;
-
                       return Transform.scale(
                         scale: scale,
                         child: Center(
@@ -275,7 +480,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                   ),
                 ),
                 
-                // Face Guide Overlay
+                // Liveness Overlay
                 Center(
                   child: Container(
                     width: 250,
@@ -284,139 +489,99 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
                       shape: BoxShape.rectangle,
                       borderRadius: BorderRadius.circular(125),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.5),
+                        color: _livenessVerified 
+                            ? Colors.green 
+                            : (_isBlinking ? Colors.blue : Colors.white.withValues(alpha: 0.5)),
                         width: 3,
                       ),
                     ),
                   ),
                 ),
-                
-                // Instruction Text
+
+                // Liveness Instructions
                 Positioned(
-                  bottom: 200,
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing2XL),
-                    child: const Text(
-                      'Position your face within the circle',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 4,
-                            color: Colors.black,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-                
-                // Camera Controls
-                Positioned(
-                  bottom: 50,
+                  bottom: 220,
                   left: 0,
                   right: 0,
                   child: Column(
                     children: [
-                      // Attendance Type Display
-                      Container(
+                       AnimatedOpacity(
+                         opacity: _isProcessing ? 0.0 : 1.0,
+                         duration: const Duration(milliseconds: 300),
+                         child: Container(
+                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                           decoration: BoxDecoration(
+                             color: Colors.black54,
+                             borderRadius: BorderRadius.circular(30),
+                           ),
+                           child: Text(
+                             _feedbackText,
+                             style: TextStyle(
+                               fontSize: 18,
+                               fontWeight: FontWeight.bold,
+                               color: _livenessVerified ? Colors.greenAccent : Colors.white,
+                             ),
+                             textAlign: TextAlign.center,
+                           ),
+                         ),
+                       ),
+                    ],
+                  ),
+                ),
+                
+                // Processing Indicator
+                if (_isProcessing)
+                  Container(
+                    color: Colors.black54,
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: AppTheme.primary),
+                          SizedBox(height: 20),
+                          Text("Marking attendance...", style: TextStyle(color: Colors.white)),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Location Verification Indicator - REMOVED
+                // We now check silently in background to allow instant camera access
+
+                // Cancel Button Only (Capture is automatic now)
+                if (!_isProcessing)
+                Positioned(
+                  bottom: 50,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: AppTheme.spacingLG,
                           vertical: AppTheme.spacingSM,
+                          horizontal: AppTheme.spacing2XL,
                         ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
+                        backgroundColor: Colors.black.withValues(alpha: 0.5),
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(AppTheme.radiusFull),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              widget.isCheckIn ? Icons.login : Icons.logout,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            const SizedBox(width: AppTheme.spacingSM),
-                            Text(
-                              widget.isCheckIn ? 'Check In' : 'Check Out',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      
-                      const SizedBox(height: AppTheme.spacingLG),
-                      
-                      // Capture Button
-                      GestureDetector(
-                        onTap: _isProcessing ? null : _captureAndMarkAttendance,
-                        child: Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.3),
-                          ),
-                          child: _isProcessing
-                              ? const Center(
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Container(
-                                  margin: const EdgeInsets.all(7.5),
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white,
-                                  ),
-                                  child: const Icon(Icons.camera_alt, color: Colors.black, size: 32),
-                                ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: AppTheme.spacingLG),
-                      
-                      // Cancel Button
-                      TextButton(
-                        onPressed: _isProcessing ? null : () => Navigator.pop(context),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppTheme.spacingSM,
-                            horizontal: AppTheme.spacing2XL,
-                          ),
-                          backgroundColor: Colors.black.withOpacity(0.5),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-                          ),
-                        ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],
             )
-          : const Scaffold(
-              backgroundColor: Colors.black,
-              body: Center(
-                child: CircularProgressIndicator(color: AppTheme.primary),
-              ),
+          : const Center(
+              child: CircularProgressIndicator(color: AppTheme.primary),
             ),
     );
   }

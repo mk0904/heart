@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
+
 import '../theme/app_theme.dart';
+import '../widgets/image_full_screen_view.dart';
 
 class EventDetailScreen extends StatefulWidget {
   final Map<String, dynamic> event;
@@ -14,8 +15,7 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   int _currentImageIndex = 0;
   final PageController _pageController = PageController();
-  final Set<int> _failedIndexes = {};
-  final Set<int> _loadedIndexes = {};
+
 
   @override
   void dispose() {
@@ -156,77 +156,72 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 });
               },
               itemBuilder: (context, index) {
-                if (_failedIndexes.contains(index)) {
-                  return Container(
-                    color: AppTheme.borderLight,
-                    child: const Center(
-                      child: Icon(Icons.event, size: 32, color: AppTheme.textSecondary),
-                    ),
-                  );
-                }
-                
-                return Stack(
-                  children: [
-                    Image.network(
-                      images[index],
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) {
-                          _loadedIndexes.add(index);
-                          return child;
-                        }
-                        return Container(
-                          color: AppTheme.borderLight,
-                          child: const Center(
-                            child: CircularProgressIndicator(),
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ImageFullScreenView(
+                          images: images,
+                          initialIndex: index,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Image.network(
+                    images[index],
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        color: AppTheme.borderLight,
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes!
+                                : null,
                           ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        _failedIndexes.add(index);
-                        return Container(
-                          color: AppTheme.borderLight,
-                          child: const Center(
-                            child: Icon(Icons.event, size: 32, color: AppTheme.textSecondary),
-                          ),
-                        );
-                      },
-                    ),
-                    if (!_loadedIndexes.contains(index) && !_failedIndexes.contains(index))
-                      Container(
-                        color: Colors.black.withOpacity(0.08),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: AppTheme.borderLight,
                         child: const Center(
-                          child: CircularProgressIndicator(),
+                          child: Icon(Icons.broken_image, size: 32, color: AppTheme.textSecondary),
                         ),
-                      ),
-                    // Image Counter
-                    Positioned(
-                      bottom: 10,
-                      right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppTheme.spacingSM,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
-                          borderRadius: BorderRadius.circular(AppTheme.radiusSM),
-                        ),
-                        child: Text(
-                          '${index + 1} / ${images.length}',
-                          style: const TextStyle(
-                            color: AppTheme.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                      );
+                    },
+                  ),
                 );
               },
             ),
+            // Image Counter
+            if (images.length > 1)
+              Positioned(
+                bottom: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTheme.spacingSM,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+                  ),
+                  child: Text(
+                    '${_currentImageIndex + 1} / ${images.length}',
+                    style: const TextStyle(
+                      color: AppTheme.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
             // Navigation Dots
             if (images.length > 1)
               Positioned(
@@ -245,7 +240,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                         shape: BoxShape.circle,
                         color: _currentImageIndex == index
                             ? AppTheme.white
-                            : AppTheme.white.withOpacity(0.5),
+                            : AppTheme.white.withValues(alpha: 0.5),
                       ),
                     ),
                   ),

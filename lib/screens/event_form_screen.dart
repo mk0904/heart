@@ -5,6 +5,7 @@ import 'dart:io';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/firebase_storage_service.dart';
 
 class EventFormScreen extends StatefulWidget {
   final Map<String, dynamic>? event;
@@ -19,6 +20,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuthService _authService = FirebaseAuthService();
+  final FirebaseStorageService _firebaseStorageService = FirebaseStorageService();
   final ImagePicker _imagePicker = ImagePicker();
   
   final TextEditingController _titleController = TextEditingController();
@@ -28,7 +30,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
   final TextEditingController _maleParticipantsController = TextEditingController();
   final TextEditingController _femaleParticipantsController = TextEditingController();
   
-  List<XFile> _images = [];
+  final List<XFile> _images = [];
   DateTime _startDate = DateTime.now();
   TimeOfDay _startTime = TimeOfDay.now();
   DateTime _endDate = DateTime.now();
@@ -137,7 +139,10 @@ class _EventFormScreenState extends State<EventFormScreen> {
 
     try {
       final List<XFile> pickedFiles = await _imagePicker.pickMultiImage(
-        imageQuality: 80,
+        imageQuality: 70, // Reduced from 80 to prevent memory issues
+        maxWidth: 1080, // Resize large images to prevent crash
+        maxHeight: 1080,
+        requestFullMetadata: false, // Speed up picking on iOS
       );
       
       if (pickedFiles.isNotEmpty) {
@@ -193,6 +198,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
     );
 
     if (pickedDate != null) {
+      if (!mounted) return;
       // Then pick the time
       final pickedTime = await showTimePicker(
         context: context,
@@ -279,9 +285,9 @@ class _EventFormScreenState extends State<EventFormScreen> {
       );
       return false;
     }
-    if (_images.length < 3) {
+    if (_images.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least 3 images')),
+        const SnackBar(content: Text('Please add at least 1 image')),
       );
       return false;
     }
@@ -292,11 +298,17 @@ class _EventFormScreenState extends State<EventFormScreen> {
     if (!_validateForm()) return;
 
     setState(() => _loading = true);
+    
+    // final user = await _authService.currentUser; // Assuming auth service is available
+    // if (user == null) {
+      // Handle unauthenticated state if necessary
+      // return;
+    // }
 
     try {
-      // TODO: Upload images to Firebase Storage or Cloudinary
-      // For now, we'll use local file paths (this won't work in production)
-      final imageUrls = _images.map((img) => img.path).toList();
+      // Upload images to Firebase Storage
+      final imageFiles = _images.map((xFile) => File(xFile.path)).toList();
+      final imageUrls = await _firebaseStorageService.uploadEventImages(imageFiles);
 
       final eventData = {
         'title': _titleController.text.trim(),
@@ -765,7 +777,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'Images (min 3)',
+              'Images (min 1)',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -778,7 +790,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
                 vertical: 4,
               ),
               decoration: BoxDecoration(
-                color: _images.length >= 3
+                color: _images.isNotEmpty
                     ? AppTheme.successLight
                     : AppTheme.warningLight,
                 borderRadius: BorderRadius.circular(999),
@@ -788,7 +800,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _images.length >= 3
+                  color: _images.isNotEmpty
                       ? AppTheme.success
                       : AppTheme.warning,
                 ),

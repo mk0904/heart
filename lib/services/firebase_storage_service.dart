@@ -57,4 +57,29 @@ class FirebaseStorageService {
     if (lower.endsWith('.webp')) return '.webp';
     return '.jpg';
   }
+  /// Upload multiple event images.
+  /// Returns a list of download URLs.
+  Future<List<String>> uploadEventImages(List<File> files) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final urls = <String>[];
+
+    for (int i = 0; i < files.length; i++) {
+      final file = files[i];
+      final ext = _getImageExtension(file.path);
+      final path = 'events/${timestamp}_$i$ext';
+      
+      final url = await uploadFile(file, path);
+      urls.add(url);
+    }
+
+    return urls;
+  }
+
+  /// Upload a user's profile image.
+  /// Returns the download URL.
+  Future<String> uploadProfileImage(File file, String userId) async {
+    final ext = _getImageExtension(file.path);
+    final path = 'users/$userId/profile$ext';
+    return uploadFile(file, path);
+  }
 }
