@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../navigation/main_tab_navigator.dart';
+import '../main.dart';
 import '../models/user_profile.dart';
 import '../services/firebase_storage_service.dart';
 
@@ -292,11 +292,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         );
         
-        // If in complete profile mode, navigate to main app
+        // If in complete profile mode, navigate to AuthWrapper to check active status
         if (widget.isCompleteProfile || _isProfileIncomplete) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const MainTabNavigator()),
+            MaterialPageRoute(builder: (context) => const AuthWrapper()),
           );
         } else {
           Navigator.pop(context, true);

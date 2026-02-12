@@ -26,6 +26,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   Map<String, dynamic>? _collegeLocation;
 
   String? _userId;
+  String? _currentUserRole;
+  String? _currentUserName;
   
   final Map<String, Map<String, String>> _studentData = {
     'st': {'male': '', 'female': ''},
@@ -89,6 +91,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       }
       setState(() {
         _userId = user.uid;
+        _currentUserRole = user.role;
+        _currentUserName = user.name;
       });
       _fetchCollegeLocation();
       _fetchRecentSubmissions();
@@ -96,6 +100,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       // Handle error
     }
   }
+
+  bool get _isPrincipal => _currentUserRole?.toLowerCase() == 'principal';
 
   Future<void> _fetchCollegeLocation() async {
     try {
@@ -266,6 +272,10 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         'collegeId': collegeId,
         'collegeName': user.college ?? 'Unknown College',
         'role': user.role,
+        'status': 'pending', // pending, approved, rejected
+        'reviewedBy': null,
+        'reviewedByName': null,
+        'reviewedAt': null,
       };
 
       if (_collegeLocation != null) {
@@ -351,6 +361,99 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => _buildSubmissionBottomSheet(submission),
     );
+  }
+
+  Future<void> _approveSubmission(Map<String, dynamic> submission) async {
+    try {
+      final submissionId = submission['id'];
+      if (submissionId == null) return;
+
+      await _firestoreService.updateEnrollmentSubmission(submissionId, {
+        'status': 'approved',
+        'reviewedBy': _userId,
+        'reviewedByName': _currentUserName,
+        'reviewedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Submission approved successfully'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+        _fetchRecentSubmissions();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to approve: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectSubmission(Map<String, dynamic> submission) async {
+    try {
+      final submissionId = submission['id'];
+      if (submissionId == null) return;
+
+      await _firestoreService.updateEnrollmentSubmission(submissionId, {
+        'status': 'rejected',
+        'reviewedBy': _userId,
+        'reviewedByName': _currentUserName,
+        'reviewedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Submission rejected'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+        _fetchRecentSubmissions();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject: $e')),
+        );
+      }
+    }
+  }
+
+  void _editSubmission(Map<String, dynamic> submission) {
+    // Pre-fill form with submission data
+    setState(() {
+      _selectedStream = submission['stream'] ?? '';
+      _selectedSemester = submission['semester'] ?? '';
+      _selectedCourse = submission['course'] ?? '';
+      
+      // Load student data
+      final studentData = submission['studentData'] as Map<String, dynamic>?;
+      if (studentData != null) {
+        studentData.forEach((category, data) {
+          if (data is Map) {
+            _studentData[category] = {
+              'male': data['male']?.toString() ?? '0',
+              'female': data['female']?.toString() ?? '0',
+            };
+          }
+        });
+      }
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Form pre-filled with submission data. You can now edit and resubmit.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   @override
@@ -1002,18 +1105,16 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
     return GestureDetector(
       onTap: () => _openSubmissionModal(submission),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: AppTheme.spacingMD,
-          horizontal: AppTheme.spacingSM,
-        ),
+        padding: const EdgeInsets.all(AppTheme.spacingMD),
         margin: const EdgeInsets.only(bottom: AppTheme.spacingSM),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: AppTheme.borderLight, width: 1),
-          ),
+          color: AppTheme.white,
+          borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+          border: Border.all(color: AppTheme.borderLight, width: 1),
         ),
         child: Row(
           children: [
+            // Left side: Title and Date
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1021,12 +1122,12 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                   Text(
                     '${submission['stream']} ${submission['semester']} - ${submission['course']}',
                     style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
                       color: AppTheme.text,
                     ),
                   ),
-                  const SizedBox(height: AppTheme.spacingXS),
+                  const SizedBox(height: 4),
                   Text(
                     _formatDate(submission['submittedAt']),
                     style: const TextStyle(
@@ -1037,29 +1138,55 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                 ],
               ),
             ),
+            const SizedBox(width: AppTheme.spacingMD),
+            // Right side: Status and Details
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // Status Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTheme.spacingSM,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(submission['status'] ?? 'pending').withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+                    border: Border.all(
+                      color: _getStatusColor(submission['status'] ?? 'pending'),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    _getStatusText(submission['status'] ?? 'pending'),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: _getStatusColor(submission['status'] ?? 'pending'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Student count details
                 Text(
-                  'Total: ${submission['totals']?['totalStudents'] ?? 0} students',
+                  '${submission['totals']?['totalStudents'] ?? 0} students',
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
                     color: AppTheme.text,
                   ),
                 ),
-                const SizedBox(height: AppTheme.spacingXS),
                 Text(
-                  '${submission['totals']?['totalMale'] ?? 0}M, ${submission['totals']?['totalFemale'] ?? 0}F',
+                  '${submission['totals']?['totalMale'] ?? 0}M • ${submission['totals']?['totalFemale'] ?? 0}F',
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: AppTheme.textSecondary,
                   ),
                 ),
               ],
             ),
             const SizedBox(width: AppTheme.spacingSM),
-            const Icon(Icons.arrow_forward_ios, size: 16, color: AppTheme.textSecondary),
+            const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.textSecondary),
           ],
         ),
       ),
@@ -1147,6 +1274,85 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                   ),
                 ),
               ),
+
+              // Action Buttons (for principals only)
+              if (_isPrincipal)
+                Container(
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  decoration: BoxDecoration(
+                    color: AppTheme.white,
+                    border: Border(
+                      top: BorderSide(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _editSubmission(submission);
+                          },
+                          icon: const Icon(Icons.edit, size: 18),
+                          label: const Text('Edit'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                            side: const BorderSide(color: AppTheme.primary),
+                            foregroundColor: AppTheme.primary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppTheme.spacingSM),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: submission['status'] != 'approved' 
+                            ? () => _approveSubmission(submission)
+                            : null,
+                          icon: const Icon(Icons.check_circle, size: 18),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.success,
+                            disabledBackgroundColor: AppTheme.textSecondary.withValues(alpha: 0.3),
+                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppTheme.spacingSM),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: submission['status'] != 'rejected'
+                            ? () => _rejectSubmission(submission)
+                            : null,
+                          icon: const Icon(Icons.cancel, size: 18),
+                          label: const Text('Reject'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.error,
+                            disabledBackgroundColor: AppTheme.textSecondary.withValues(alpha: 0.3),
+                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         );
@@ -1405,5 +1611,29 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         ],
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'approved':
+        return AppTheme.success;
+      case 'rejected':
+        return AppTheme.error;
+      case 'pending':
+      default:
+        return Colors.orange;
+    }
+  }
+
+  String _getStatusText(String status) {
+    switch (status.toLowerCase()) {
+      case 'approved':
+        return 'Approved';
+      case 'rejected':
+        return 'Rejected';
+      case 'pending':
+      default:
+        return 'Pending';
+    }
   }
 }

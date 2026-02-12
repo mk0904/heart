@@ -26,7 +26,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   int _cameraIndex = 0;
   bool _isInitialized = false;
   bool _isProcessing = false;
-  bool _requestingPermission = false;
+  final bool _requestingPermission = false;
   // bool _verifyingLocation = true; // Removed blocking state
   
   // Liveness check state
@@ -51,13 +51,23 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
   Future<void> _finalVerification() async {
     // 1. Check Time (Silent check)
-    final isWithinHours = await _attendanceService.isWithinCollegeHours();
+    bool isTimeValid;
+    String timeErrorMsg;
+
+    if (widget.isCheckIn) {
+       isTimeValid = await _attendanceService.isCheckInAllowed();
+       timeErrorMsg = "Check-in allowed only before college start time";
+    } else {
+       isTimeValid = await _attendanceService.isCheckOutAllowed();
+       timeErrorMsg = "Check-out allowed only after college hours";
+    }
+
     if (!mounted) return;
     
-    if (!isWithinHours) {
+    if (!isTimeValid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Attendance can only be marked during college hours'),
+        SnackBar(
+          content: Text(timeErrorMsg),
           backgroundColor: Colors.orange,
         ),
       );
@@ -375,9 +385,17 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         person.faceEmbedding,
       );
 
-      final isWithinHours = await _attendanceService.isWithinCollegeHours();
-      if (!isWithinHours) {
-        throw Exception('Attendance can only be marked during college hours');
+      bool isTimeValid;
+      if (widget.isCheckIn) {
+        isTimeValid = await _attendanceService.isCheckInAllowed();
+      } else {
+        isTimeValid = await _attendanceService.isCheckOutAllowed();
+      }
+      
+      if (!isTimeValid) {
+        throw Exception(widget.isCheckIn 
+          ? 'Check-in allowed only before college start time' 
+          : 'Check-out allowed only after college hours');
       }
 
       final geofenceResult = await _attendanceService.validateGeofence();

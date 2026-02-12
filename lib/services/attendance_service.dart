@@ -96,25 +96,26 @@ class AttendanceService {
         
         if (faceRegistered && faceEmbedding != null && faceEmbedding is List) {
           // Convert to List<double>
-          final firebaseEmbedding = (faceEmbedding as List)
+          final firebaseEmbedding = faceEmbedding
               .map((e) => (e as num).toDouble())
               .toList();
           
           // Store in local Hive storage
           final person = Person(
             id: user.uid,
-            name: user.name ?? 'User',
+            name: user.name,
             employeeId: user.uid,
             faceEmbedding: firebaseEmbedding,
             registeredAt: DateTime.now(),
           );
           
           await _personsBox.put(person.id, person);
-          print('Synced face embedding from Firebase to local storage');
+
+          // print('Synced face embedding from Firebase to local storage');
         }
       }
     } catch (e) {
-      print('Error syncing face embedding from Firebase: $e');
+      // print('Error syncing face embedding from Firebase: $e');
       // Non-critical, continue silently
     }
   }
@@ -207,7 +208,7 @@ class AttendanceService {
             
             if (faceEmbedding != null && faceEmbedding is List) {
               // Convert to List<double>
-              final firebaseEmbedding = (faceEmbedding as List)
+              final firebaseEmbedding = faceEmbedding
                   .map((e) => (e as num).toDouble())
                   .toList();
               
@@ -221,7 +222,7 @@ class AttendanceService {
                 // Match found in Firebase! Create Person object and sync to local storage
                 final person = Person(
                   id: user.uid,
-                  name: user.name ?? 'User',
+                  name: user.name,
                   employeeId: user.uid,
                   faceEmbedding: firebaseEmbedding,
                   registeredAt: DateTime.now(),
@@ -236,7 +237,7 @@ class AttendanceService {
           }
         }
       } catch (e) {
-        print('Error checking Firebase for face recognition: $e');
+        // print('Error checking Firebase for face recognition: $e');
         // Continue and return null if Firebase check fails
       }
     }
@@ -281,7 +282,7 @@ class AttendanceService {
         }
       }
     } catch (e) {
-      print('Error checking Firebase attendance: $e');
+      // print('Error checking Firebase attendance: $e');
     }
 
     // Fallback to local storage (check for check-in without check-out)
@@ -327,7 +328,7 @@ class AttendanceService {
         };
       }
     } catch (e) {
-      print('Error fetching college details: $e');
+      // print('Error fetching college details: $e');
     }
     return null;
   }
@@ -357,6 +358,37 @@ class AttendanceService {
     final endHour = endHourRaw is int ? endHourRaw : (endHourRaw as num).toInt();
 
     return currentHour >= startHour && currentHour < endHour;
+  }
+
+  /// Check if check-in is allowed (Midnight <= Now < Start Time)
+  Future<bool> isCheckInAllowed() async {
+    final details = await getCollegeDetails();
+    if (details == null) return true; // If no settings, allow anytime
+
+    final now = DateTime.now();
+    final currentHour = now.hour;
+    final startHourRaw = details['startTime'];
+    
+    final startHour = startHourRaw is int ? startHourRaw : (startHourRaw as num).toInt();
+
+    // Allowed if current hour is strictly less than start hour
+    return currentHour < startHour;
+  }
+
+  /// Check if check-out is allowed (End Time <= Now < Midnight)
+  Future<bool> isCheckOutAllowed() async {
+    final details = await getCollegeDetails();
+    if (details == null) return true; // If no settings, allow anytime
+
+    final now = DateTime.now();
+    final currentHour = now.hour;
+    final endHourRaw = details['endTime'];
+    
+    final endHour = endHourRaw is int ? endHourRaw : (endHourRaw as num).toInt();
+
+    // Allowed if current hour is greater than or equal to end hour
+    // And implicitly less than 24 since currentHour is 0-23
+    return currentHour >= endHour;
   }
 
   /// Check if user is within geofence
@@ -514,11 +546,11 @@ class AttendanceService {
             'autoCheckedOut': true,
             'updatedAt': DateTime.now().toIso8601String(),
           });
-          print('Auto-checked out user ${data['userId']} for date $yesterdayStr');
+          // print('Auto-checked out user ${data['userId']} for date $yesterdayStr');
         }
       }
     } catch (e) {
-      print('Error in auto-checkout: $e');
+      // print('Error in auto-checkout: $e');
     }
   }
 
@@ -557,7 +589,7 @@ class AttendanceService {
       }
       return null;
     } catch (e) {
-      print('Error getting today\'s record: $e');
+      // print('Error getting today\'s record: $e');
       return null;
     }
   }
@@ -660,7 +692,7 @@ class AttendanceService {
         longitude = position.longitude;
       }
     } catch (e) {
-      print('Error getting location in background sync: $e');
+      // print('Error getting location in background sync: $e');
     }
 
     try {
@@ -768,7 +800,7 @@ class AttendanceService {
       localRecord.synced = true;
       await localRecord.save();
     } catch (e) {
-      print('Error syncing attendance to Firebase in background: $e');
+      // print('Error syncing attendance to Firebase in background: $e');
       // Leave localRecord.synced = false; syncPendingAttendance will retry later
     }
   }
@@ -781,7 +813,7 @@ class AttendanceService {
     
     final isConnected = await _connectivityService.isConnected();
     if (!isConnected) {
-      print('No internet connection, skipping sync');
+      // print('No internet connection, skipping sync');
       return;
     }
 
@@ -796,12 +828,12 @@ class AttendanceService {
       // Get all unsynced records (handle old records without synced field)
       final unsyncedRecords = _attendanceBox.values
           .where((record) => 
-            (record.synced == false || record.synced == null) && 
+            record.synced == false && 
             record.employeeId == user.uid
           )
           .toList();
 
-      print('Checking ${unsyncedRecords.length} pending attendance records for sync...');
+      // print('Checking ${unsyncedRecords.length} pending attendance records for sync...');
 
       // Group records by date
       final recordsByDate = <String, List<AttendanceRecord>>{};
@@ -818,8 +850,8 @@ class AttendanceService {
         recordsByDate[dateStr]!.add(record);
       }
 
-      int syncedCount = 0;
-      int skippedCount = 0;
+      // int syncedCount = 0;
+      // int skippedCount = 0;
 
       // Process each date's records
       for (var entry in recordsByDate.entries) {
@@ -929,7 +961,7 @@ class AttendanceService {
                 record.synced = true;
                 await record.save();
               }
-              syncedCount++;
+              // syncedCount++;
               continue; // Skip to next date
             }
           }
@@ -990,17 +1022,17 @@ class AttendanceService {
               record.synced = true;
               await record.save();
             }
-            syncedCount++;
+            // syncedCount++;
           }
         } catch (e) {
-          print('Error syncing records for date $dateStr: $e');
+          // print('Error syncing records for date $dateStr: $e');
           // Continue with next date
         }
       }
 
-      print('Sync completed. $syncedCount date(s) synced, $skippedCount skipped.');
+      // print('Sync completed. $syncedCount date(s) synced, $skippedCount skipped.');
     } catch (e) {
-      print('Error during sync: $e');
+      // print('Error during sync: $e');
     } finally {
       _isSyncing = false;
     }
@@ -1082,7 +1114,7 @@ class AttendanceService {
       firebaseList.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       records.addAll(firebaseList.take(100)); // Limit to 100 most recent
     } catch (e) {
-      print('Error fetching attendance from Firebase: $e');
+      // print('Error fetching attendance from Firebase: $e');
     }
 
     // Merge with local records (avoid duplicates)
@@ -1145,7 +1177,7 @@ class AttendanceService {
       
       return dailyRecords;
     } catch (e) {
-      print('Error fetching daily attendance: $e');
+      // print('Error fetching daily attendance: $e');
       return [];
     }
   }

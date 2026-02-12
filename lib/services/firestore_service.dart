@@ -950,7 +950,15 @@ class FirestoreService {
       final docRef = await _firestore.collection('enrollmentData').add(submissionData);
       return docRef.id;
     } catch (e) {
-      throw Exception('Failed to add enrollment submission: ${e.toString()}');
+      throw Exception('Failed to add enrollment submission: $e');
+    }
+  }
+
+  Future<void> updateEnrollmentSubmission(String submissionId, Map<String, dynamic> updates) async {
+    try {
+      await _firestore.collection('enrollmentData').doc(submissionId).update(updates);
+    } catch (e) {
+      throw Exception('Failed to update enrollment submission: $e');
     }
   }
 }

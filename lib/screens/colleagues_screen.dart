@@ -84,10 +84,9 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
       // Fetch users from Firebase
       final users = await _firestoreService.getUsers(collegeId: _userCollegeId);
       
-      // Convert UserProfile to Map for display, exclude current user
+      // Convert UserProfile to Map for display, include current user
       setState(() {
         _users = users
-            .where((u) => u.uid != _currentUserId)
             .map((u) => <String, dynamic>{
               'id': u.uid,
               'name': u.name,
@@ -107,14 +106,36 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
             })
             .toList();
         
-        // Sort: active users first, then by name
+        // Sort by role hierarchy: Principal > Vice-Principal > Others, then alphabetically
         _users.sort((a, b) {
           final aActive = a['active'] ?? true;
           final bActive = b['active'] ?? true;
-          if (aActive == bActive) {
-            return (a['name'] ?? '').compareTo(b['name'] ?? '');
+          final aRole = (a['role'] ?? '').toString().toLowerCase();
+          final bRole = (b['role'] ?? '').toString().toLowerCase();
+          final aName = (a['name'] ?? '').toString();
+          final bName = (b['name'] ?? '').toString();
+          
+          // Helper function to get role priority (lower = higher priority)
+          int getRolePriority(String role) {
+            if (role == 'principal') return 1;
+            if (role == 'vice-principal') return 2;
+            return 3; // All other roles
           }
-          return aActive ? -1 : 1;
+          
+          // First sort by active status
+          if (aActive != bActive) {
+            return aActive ? -1 : 1;
+          }
+          
+          // Then by role hierarchy
+          final aPriority = getRolePriority(aRole);
+          final bPriority = getRolePriority(bRole);
+          if (aPriority != bPriority) {
+            return aPriority.compareTo(bPriority);
+          }
+          
+          // Finally by name alphabetically
+          return aName.compareTo(bName);
         });
         
         _filteredUsers = List.from(_users);
@@ -511,11 +532,12 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
                       const SizedBox(width: AppTheme.spacingMD),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () {
+                          onPressed: user['id'] == _currentUserId ? null : () {
                              _toggleUserStatus(user);
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isActive ? AppTheme.error : AppTheme.success,
+                            disabledBackgroundColor: AppTheme.textSecondary.withValues(alpha: 0.3),
                             padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
@@ -523,9 +545,11 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
                             ),
                           ),
                           child: Text(
-                            isActive ? 'Deactivate' : 'Activate',
-                            style: const TextStyle(
-                              color: AppTheme.white,
+                            user['id'] == _currentUserId 
+                              ? 'You' 
+                              : (isActive ? 'Deactivate' : 'Activate'),
+                            style: TextStyle(
+                              color: user['id'] == _currentUserId ? AppTheme.textSecondary : AppTheme.white,
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),

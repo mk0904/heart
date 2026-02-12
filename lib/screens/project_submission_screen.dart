@@ -275,72 +275,125 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   }
 
   Widget _buildPercentageSection() {
-    final percentageOptions = [10, 25, 50, 75, 100]
-        .where((v) => v >= _previousPercentage)
-        .toList();
+    if (_previousPercentage >= 100) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Completion Percentage',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.text,
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacingSM),
+          Container(
+            padding: const EdgeInsets.all(AppTheme.spacingMD),
+            decoration: BoxDecoration(
+              color: AppTheme.successLight,
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              border: Border.all(color: AppTheme.success, width: 1),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: AppTheme.success, size: 20),
+                const SizedBox(width: AppTheme.spacingSM),
+                const Expanded(
+                  child: Text(
+                    'Project already completed at 100%',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.success,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Completion Percentage',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.text,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppTheme.spacingSM,
-                vertical: 4,
-              ),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryLight,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '${_percentage.round()}%',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.primary,
-                ),
-              ),
-            ),
-          ],
+        const Text(
+          'Completion Percentage',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.text,
+          ),
         ),
-        const SizedBox(height: AppTheme.spacingMD),
-        Wrap(
-          spacing: AppTheme.spacingSM,
-          runSpacing: AppTheme.spacingSM,
-          children: percentageOptions.map((value) {
-            final isSelected = _percentage.round() == value;
-            return GestureDetector(
-              onTap: () => setState(() => _percentage = value.toDouble()),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingMD,
-                  vertical: AppTheme.spacingSM,
-                ),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppTheme.primary : AppTheme.backgroundDark,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-                ),
-                child: Text(
-                  '$value%',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isSelected ? AppTheme.white : AppTheme.text,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
+        const SizedBox(height: AppTheme.spacingSM),
+        TextFormField(
+          keyboardType: TextInputType.number,
+          initialValue: _percentage > 0 ? _percentage.round().toString() : '',
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            TextInputFormatter.withFunction((oldValue, newValue) {
+              if (newValue.text.isEmpty) return newValue;
+              final value = int.tryParse(newValue.text);
+              if (value == null) return oldValue;
+              if (value < 0 || value > 100) return oldValue;
+              return newValue;
+            }),
+          ],
+          style: const TextStyle(
+            fontSize: 15,
+            color: AppTheme.text,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Enter percentage (${_previousPercentage}-100)',
+            labelStyle: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 15,
+            ),
+            suffixText: '%',
+            suffixStyle: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 15,
+            ),
+            prefixIcon: const Icon(Icons.percent, size: 20, color: AppTheme.textSecondary),
+            filled: true,
+            fillColor: AppTheme.backgroundDark,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              borderSide: const BorderSide(color: AppTheme.error, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+              borderSide: const BorderSide(color: AppTheme.error, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.spacingLG,
+              vertical: AppTheme.spacingMD,
+            ),
+          ),
+          onChanged: (value) {
+            if (value.isNotEmpty) {
+              final percentage = int.tryParse(value);
+              if (percentage != null && percentage >= _previousPercentage && percentage <= 100) {
+                setState(() => _percentage = percentage.toDouble());
+              }
+            } else {
+              setState(() => _percentage = 0);
+            }
+          },
         ),
         if (_previousPercentage > 0) ...[
           const SizedBox(height: AppTheme.spacingSM),
@@ -571,6 +624,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: (_submitting ||
+                                  _previousPercentage >= 100 ||
                                   _percentage < _previousPercentage ||
                                   _notesController.text.trim().isEmpty ||
                                   _images.isEmpty)

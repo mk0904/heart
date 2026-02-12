@@ -167,12 +167,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     try {
       // 1. Check Time
-      final isWithinHours = await _attendanceService.isWithinCollegeHours();
-      if (!isWithinHours) {
+      bool isTimeValid;
+      String timeErrorMsg;
+
+      if (_isCheckedIn) {
+         // User is checked in, so next action is Check Out
+         isTimeValid = await _attendanceService.isCheckOutAllowed();
+         timeErrorMsg = "Check-out allowed only after college hours"; 
+      } else {
+         // User is checked out, so next action is Check In
+         isTimeValid = await _attendanceService.isCheckInAllowed();
+         timeErrorMsg = "Check-in allowed only before college start time";
+      }
+
+      if (!isTimeValid) {
         if (mounted) {
           setState(() {
             _isEligible = false;
-            _eligibilityMessage = "Outside college hours";
+            _eligibilityMessage = timeErrorMsg;
             _isCheckingEligibility = false;
           });
         }
