@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final NotificationService _notificationService = NotificationService();
   String _userName = 'User';
+  String? _userRole;
   int _unreadCount = 0;
   StreamSubscription? _notificationSubscription;
   String? _userId;
@@ -355,6 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (user != null && mounted) {
         setState(() {
           _userName = user.name ?? 'User';
+          _userRole = user.role;
         });
       }
     } catch (e) {
@@ -735,18 +737,27 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
       ),
-      _FeatureItem(
-        title: 'Submit\nData',
-        icon: Icons.cloud_upload,
-        color: AppTheme.primary,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const SubmitDataScreen()),
-          );
-        },
-      ),
     ];
+    
+    // Check if user should see "Submit Data"
+    if (_userRole != null) {
+      final role = _userRole!.toLowerCase().replaceAll('-', ' ');
+      if (role == 'principal' || role == 'ministerial staff') {
+        features.add(
+          _FeatureItem(
+            title: 'Submit\nData',
+            icon: Icons.cloud_upload,
+            color: AppTheme.primary,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SubmitDataScreen()),
+              );
+            },
+          ),
+        );
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.all(AppTheme.spacingLG),

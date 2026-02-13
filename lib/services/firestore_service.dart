@@ -264,6 +264,15 @@ class FirestoreService {
     }
   }
 
+  /// Update a submission
+  Future<void> updateSubmission(String submissionId, Map<String, dynamic> data) async {
+    try {
+      await _firestore.collection('submissions').doc(submissionId).update(data);
+    } catch (e) {
+      throw Exception('Failed to update submission: ${e.toString()}');
+    }
+  }
+
   // ==================== CIRCULARS ====================
 
   /// Get circulars (optionally filtered by user)
@@ -959,6 +968,71 @@ class FirestoreService {
       await _firestore.collection('enrollmentData').doc(submissionId).update(updates);
     } catch (e) {
       throw Exception('Failed to update enrollment submission: $e');
+    }
+  }
+
+  // Tickets (Support/Feedback)
+  Future<String> addTicket(Map<String, dynamic> ticketData) async {
+    try {
+      final docRef = await _firestore.collection('tickets').add(ticketData);
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to add ticket: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getUserTickets(String userId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('tickets')
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      final tickets = querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+
+      // Sort by createdAt in memory (newest first)
+      tickets.sort((a, b) {
+        final dateA = a['createdAt'] ?? '';
+        final dateB = b['createdAt'] ?? '';
+        return dateB.compareTo(dateA);
+      });
+
+      return tickets;
+    } catch (e) {
+      throw Exception('Failed to fetch user tickets: $e');
+    }
+  }
+
+  // ==================== COURSES ====================
+  
+  /// Get all active courses with their streams
+  Future<List<Map<String, dynamic>>> getCourses() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('courses')
+          .where('active', isEqualTo: true)
+          .get();
+
+      final courses = querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'name': data['name'] ?? '',
+          'streams': List<String>.from(data['streams'] ?? []),
+          'active': data['active'] ?? true,
+        };
+      }).toList();
+      
+      // Sort by name in memory
+      courses.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+      
+      return courses;
+    } catch (e) {
+      throw Exception('Failed to fetch courses: $e');
     }
   }
 }

@@ -24,11 +24,18 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   bool _viewerVisible = false;
   List<String> _viewerImages = [];
   int _viewerIndex = 0;
+  String? _userRole;
+  String? _userCollegeId;
 
   @override
   void initState() {
     super.initState();
-    _loadSubmissions();
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    await _loadUserProfile();
+    await _loadSubmissions();
   }
 
   @override
@@ -43,8 +50,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
       // getSubmissions already sorts by createdAt descending
       final submissions = await _firestoreService.getSubmissions(widget.project['id']);
       
+      // filter locally if user has a collegeId
+      List<Map<String, dynamic>> filtered = submissions;
+      if (_userCollegeId != null && _userRole?.toLowerCase() != 'super admin') {
+        filtered = submissions.where((s) => s['collegeId'] == _userCollegeId).toList();
+      }
+
       setState(() {
-        _submissions = submissions;
+        _submissions = filtered;
         _loading = false;
       });
     } catch (e) {
@@ -54,6 +67,20 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           SnackBar(content: Text('Error loading submissions: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final user = await _authService.getCurrentUser();
+      if (mounted) {
+        setState(() {
+          _userRole = user?.role;
+          _userCollegeId = user?.collegeId;
+        });
+      }
+    } catch (e) {
+      // Ignore error for now
     }
   }
 
@@ -136,7 +163,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         _buildProjectCard(),
                         
                         // New Submission Button
-                        if (widget.project['status']?.toLowerCase() != 'completed')
+                        if (widget.project['status']?.toLowerCase() != 'completed' && 
+                            _userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff')
                           _buildNewSubmissionButton(),
                         
                         // Submissions Section
@@ -367,9 +395,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           border: Border.all(color: AppTheme.borderLight, width: 0.5),
           boxShadow: AppTheme.shadowSM,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: InkWell(
+        onTap: (_userRole?.toLowerCase() == 'principal')
+            ? () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ProjectSubmissionScreen(
+                      project: widget.project,
+                      submissionId: submission['id'],
+                      existingData: submission,
+                    ),
+                  ),
+                ).then((_) => _loadSubmissions());
+              }
+            : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -471,7 +514,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
           ],
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildImageViewer() {

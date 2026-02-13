@@ -9,8 +9,15 @@ import 'dart:io';
 
 class ProjectSubmissionScreen extends StatefulWidget {
   final Map<String, dynamic> project;
+  final String? submissionId;
+  final Map<String, dynamic>? existingData;
 
-  const ProjectSubmissionScreen({super.key, required this.project});
+  const ProjectSubmissionScreen({
+    super.key,
+    required this.project,
+    this.submissionId,
+    this.existingData,
+  });
 
   @override
   State<ProjectSubmissionScreen> createState() => _ProjectSubmissionScreenState();
@@ -28,11 +35,65 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   List<File> _images = [];
   bool _loading = false;
   bool _submitting = false;
+  
+  // New fields
+  List<Map<String, dynamic>> _colleges = [];
+  String? _selectedCollegeId;
+  String? _selectedCollegeName;
+  String _submissionStatus = 'Pending';
+  String? _userRole;
+  List<String> _existingImageUrls = [];
 
   @override
   void initState() {
     super.initState();
-    _loadPreviousSubmission();
+    _loadUserProfile();
+    _loadColleges();
+    if (widget.existingData != null) {
+      _loadExistingData();
+    } else {
+      _loadPreviousSubmission();
+    }
+  }
+
+  Future<void> _loadUserProfile() async {
+    final user = await _authService.getCurrentUser();
+    if (mounted) {
+      setState(() {
+        _userRole = user?.role;
+      });
+    }
+  }
+
+  Future<void> _loadColleges() async {
+    try {
+      final colleges = await _firestoreService.getColleges();
+      if (mounted) {
+        setState(() {
+          _colleges = colleges;
+        });
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  void _loadExistingData() {
+    final data = widget.existingData!;
+    setState(() {
+      _percentage = (data['percentage'] ?? 0).toDouble();
+      _notesController.text = data['notes'] ?? '';
+      _submissionStatus = data['status'] ?? 'Pending';
+      _selectedCollegeId = data['collegeId'];
+      _selectedCollegeName = data['collegeName'];
+      
+      final images = data['images'] as List? ?? [];
+      _existingImageUrls = images.map((img) {
+        if (img is String) return img;
+        if (img is Map) return img['url'] as String? ?? '';
+        return '';
+      }).where((url) => url.isNotEmpty).cast<String>().toList();
+    });
   }
 
   @override
@@ -127,9 +188,17 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
       return;
     }
 
-    if (_images.isEmpty) {
+    if (_selectedCollegeId == null && _userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff') {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one image')),
+        const SnackBar(content: Text('Please select a college')),
+      );
+      return;
+    }
+
+    // Safety check: Principals cannot create new submissions
+    if (widget.submissionId == null && _userRole?.toLowerCase().replaceAll('-', ' ') != 'ministerial staff') {
+       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only Ministerial Staff can create new submissions')),
       );
       return;
     }
@@ -138,26 +207,39 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
 
     try {
       final user = await _authService.getCurrentUser();
-      final projectId = widget.project['id'] as String? ?? '';
-
+      
       // Upload images to Firebase Storage and get download URLs
-      final imageData = await _storageService.uploadProjectSubmissionImages(
+      final newImageData = await _storageService.uploadProjectSubmissionImages(
         files: _images,
-        projectId: projectId,
+        projectId: widget.project['id'] ?? '',
       );
+
+      // Combine existing and new images
+      final allImages = [..._existingImageUrls, ...newImageData];
 
       final submissionData = {
         'projectId': widget.project['id'],
         'projectName': widget.project['name'],
         'percentage': _percentage.round(),
         'notes': _notesController.text.trim(),
-        'images': imageData,
-        'userId': user?.uid ?? 'unknown',
-        'userName': user?.name ?? 'Unknown User',
-        'createdAt': DateTime.now().toIso8601String(),
+        'images': allImages,
+        'status': _submissionStatus,
+        if (_selectedCollegeId != null) 'collegeId': _selectedCollegeId,
+        if (_selectedCollegeName != null) 'collegeName': _selectedCollegeName,
+        'updatedAt': DateTime.now().toIso8601String(),
       };
 
-      await _firestoreService.addSubmission(submissionData);
+      if (widget.submissionId != null) {
+        // Update existing
+        submissionData['updatedBy'] = user?.uid;
+        await _firestoreService.updateSubmission(widget.submissionId!, submissionData);
+      } else {
+        // Create new
+        submissionData['userId'] = user?.uid ?? 'unknown';
+        submissionData['userName'] = user?.name ?? 'Unknown User';
+        submissionData['createdAt'] = DateTime.now().toIso8601String();
+        await _firestoreService.addSubmission(submissionData);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -250,7 +332,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
             child: Column(
               children: [
                 const Text(
-                  'New Submission',
+                  'Project Submission',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -405,6 +487,94 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _buildCollegeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Select College',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.text,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSM),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+          decoration: BoxDecoration(
+            color: AppTheme.backgroundDark,
+            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedCollegeId,
+              hint: const Text('Select a college'),
+              isExpanded: true,
+              items: _colleges.map((college) {
+                return DropdownMenuItem<String>(
+                  value: college['id'],
+                  child: Text(college['name'] ?? 'Unknown'),
+                );
+              }).toList(),
+              onChanged: _userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff' 
+                ? (value) {
+                    setState(() {
+                      _selectedCollegeId = value;
+                      _selectedCollegeName = _colleges.firstWhere((c) => c['id'] == value)['name'];
+                    });
+                  }
+                : null, // Disable for non-Ministerial Staff (or maybe allow Principal to edit?)
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Status',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.text,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingSM),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+          decoration: BoxDecoration(
+            color: AppTheme.backgroundDark,
+            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _submissionStatus,
+              isExpanded: true,
+              items: ['Pending', 'Approved', 'Rejected'].map((status) {
+                return DropdownMenuItem<String>(
+                  value: status,
+                  child: Text(status),
+                );
+              }).toList(),
+              onChanged: _userRole?.toLowerCase() == 'principal'
+                  ? (value) {
+                      if (value != null) {
+                        setState(() => _submissionStatus = value);
+                      }
+                    }
+                  : null, 
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -598,6 +768,17 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                       ),
 
                       const SizedBox(height: AppTheme.spacingLG),
+
+                      // College Selection AND Status (if applicable)
+                      if (_userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff' || _selectedCollegeId != null) ...[
+                        _buildCollegeSection(),
+                        const SizedBox(height: AppTheme.spacingLG),
+                      ],
+                      
+                      if (_userRole?.toLowerCase() == 'principal' || _submissionStatus != 'Pending') ...[
+                        _buildStatusSection(),
+                        const SizedBox(height: AppTheme.spacingLG),
+                      ],
 
                       // Percentage Selection
                       _buildPercentageSection(),

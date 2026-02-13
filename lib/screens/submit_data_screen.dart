@@ -21,6 +21,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   bool _submitting = false;
   bool _loadingSubmissions = false;
   bool _refreshing = false;
+  bool _loadingCourses = true;
+  String? _editingSubmissionId;
 
   
   Map<String, dynamic>? _collegeLocation;
@@ -42,41 +44,19 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   };
   
   List<Map<String, dynamic>> _recentSubmissions = [];
+  List<Map<String, dynamic>> _colleges = [];
+  String? _selectedCollegeId;
+  
+  // Dynamic course data from Firestore
+  List<Map<String, dynamic>> _coursesData = [];
+  List<String> _availableStreams = [];
 
-  final List<Map<String, String>> _streams = [
-    {'value': 'B.A', 'label': 'B.A'},
-    {'value': 'B.Sc', 'label': 'B.Sc'},
-    {'value': 'B.Tech', 'label': 'B.Tech'},
-    {'value': 'B.Com', 'label': 'B.Com'},
-    {'value': 'B.Ed', 'label': 'B.Ed'},
-    {'value': 'M.A', 'label': 'M.A'},
-    {'value': 'M.Sc', 'label': 'M.Sc'},
-    {'value': 'M.Tech', 'label': 'M.Tech'},
-    {'value': 'M.Com', 'label': 'M.Com'},
-  ];
-  
   final List<String> _semesters = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
-  
-  final List<Map<String, String>> _courses = [
-    {'value': 'Economics', 'label': 'Economics'},
-    {'value': 'Education', 'label': 'Education'},
-    {'value': 'English', 'label': 'English'},
-    {'value': 'History', 'label': 'History'},
-    {'value': 'Philosophy', 'label': 'Philosophy'},
-    {'value': 'Political Science', 'label': 'Political Science'},
-    {'value': 'Sociology', 'label': 'Sociology'},
-    {'value': 'Psychology', 'label': 'Psychology'},
-    {'value': 'Mathematics', 'label': 'Mathematics'},
-    {'value': 'Physics', 'label': 'Physics'},
-    {'value': 'Chemistry', 'label': 'Chemistry'},
-    {'value': 'Biology', 'label': 'Biology'},
-    {'value': 'Computer Science', 'label': 'Computer Science'},
-    {'value': 'Commerce', 'label': 'Commerce'},
-  ];
 
   @override
   void initState() {
     super.initState();
+    _fetchCourses();
     _checkAuth();
   }
 
@@ -89,34 +69,106 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         }
         return;
       }
-      setState(() {
-        _userId = user.uid;
-        _currentUserRole = user.role;
-        _currentUserName = user.name;
-      });
-      _fetchCollegeLocation();
+      
+      await _fetchColleges();
+
+      if (mounted) {
+        setState(() {
+          _userId = user.uid;
+          _currentUserRole = user.role;
+          _currentUserName = user.name;
+          
+          if (_selectedCollegeId == null && user.collegeId != null) {
+             // Default to user's college if available and present in list
+             if (_colleges.any((c) => c['id'] == user.collegeId)) {
+                _selectedCollegeId = user.collegeId;
+             }
+          }
+        });
+      }
+      
+      _updateCollegeLocation(); // Update location data based on selected ID
       _fetchRecentSubmissions();
     } catch (e) {
       // Handle error
     }
   }
 
-  bool get _isPrincipal => _currentUserRole?.toLowerCase() == 'principal';
-
-  Future<void> _fetchCollegeLocation() async {
+  Future<void> _fetchCourses() async {
     try {
-      final user = await _authService.getCurrentUser();
-      final collegeId = user?.collegeId;
-      if (collegeId == null) return;
+      print('DEBUG: Starting to fetch courses...');
+      setState(() {
+        _loadingCourses = true;
+      });
       
-      final college = await _firestoreService.getCollege(collegeId);
-      if (college != null) {
+      final courses = await _firestoreService.getCourses();
+      print('DEBUG: Fetched ${courses.length} courses');
+      print('DEBUG: Courses data: $courses');
+      
+      if (mounted) {
         setState(() {
-          _collegeLocation = college;
+          _coursesData = courses;
+          _loadingCourses = false;
+        });
+        print('DEBUG: Courses state updated');
+      }
+    } catch (e) {
+      print('DEBUG: Error fetching courses: $e');
+      if (mounted) {
+        setState(() {
+          _loadingCourses = false;
+        });
+      }
+      // Handle error silently or show a message
+    }
+  }
+
+  void _onCourseSelected(String courseName) {
+    // Find the selected course and update available streams
+    final selectedCourse = _coursesData.firstWhere(
+      (course) => course['name'] == courseName,
+      orElse: () => {},
+    );
+    
+    setState(() {
+      _selectedCourse = courseName;
+      _availableStreams = List<String>.from(selectedCourse['streams'] ?? []);
+      // Reset stream selection when course changes
+      _selectedStream = '';
+    });
+  }
+
+  Future<void> _fetchColleges() async {
+    try {
+      final colleges = await _firestoreService.getColleges();
+      if (mounted) {
+        setState(() {
+          _colleges = colleges;
+          _colleges.sort((a, b) => (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? ''));
         });
       }
     } catch (e) {
-      // Handle error
+      print('Error fetching colleges: $e');
+    }
+  }
+
+  bool get _isPrincipal => _currentUserRole?.toLowerCase() == 'principal';
+
+  void _updateCollegeLocation() {
+    if (_selectedCollegeId == null) {
+      setState(() => _collegeLocation = null);
+      return;
+    }
+    
+    final college = _colleges.firstWhere(
+      (c) => c['id'] == _selectedCollegeId, 
+      orElse: () => {},
+    );
+    
+    if (college.isNotEmpty) {
+      setState(() {
+        _collegeLocation = college;
+      });
     }
   }
 
@@ -130,8 +182,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       final collegeId = user?.collegeId;
       
       final submissions = await _firestoreService.getEnrollmentSubmissions(
-        collegeId: collegeId,
-        submittedBy: collegeId == null ? _userId : null,
+        collegeId: _selectedCollegeId ?? user?.collegeId,
+        submittedBy: (_selectedCollegeId ?? user?.collegeId) == null ? _userId : null,
       );
       
       setState(() {
@@ -218,6 +270,16 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       return;
     }
 
+    // Safety check for new submissions vs updates
+    if (_editingSubmissionId == null && _isPrincipal) {
+       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Principals can only edit existing submissions, not create new ones.')),
+        );
+      }
+      return;
+    }
+
     final totals = _calculateTotals();
     if (totals['totalStudents'] == 0) {
       if (mounted) {
@@ -246,8 +308,38 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         return;
       }
 
-      final collegeId = user.collegeId;
+      final userCollegeId = user.collegeId;
+      final targetCollegeId = _selectedCollegeId ?? userCollegeId;
       
+      // Determine college data first
+      Map<String, dynamic>? collegeData;
+      String collegeName = user.college ?? 'Unknown College';
+
+      if (_collegeLocation != null) {
+        collegeName = _collegeLocation!['name'] ?? collegeName;
+        collegeData = {
+          'id': _collegeLocation!['id'] ?? targetCollegeId,
+          'name': collegeName,
+          'email': _collegeLocation!['email'],
+          'phone': _collegeLocation!['phone'],
+          'address': _collegeLocation!['address'],
+          'location': _collegeLocation!['location'],
+          'latitude': _collegeLocation!['latitude'],
+          'longitude': _collegeLocation!['longitude'],
+        };
+      } else if (targetCollegeId != null) {
+        // Fallback if we have ID but no full object
+        final college = _colleges.firstWhere(
+          (c) => c['id'] == targetCollegeId, 
+          orElse: () => {'name': collegeName}
+        );
+        collegeName = college['name'];
+        collegeData = {
+          'id': targetCollegeId,
+          'name': collegeName,
+        };
+      }
+
       // Clean student data (convert empty strings to '0')
       final cleanedStudentData = <String, Map<String, String>>{};
       _studentData.forEach((key, value) {
@@ -269,8 +361,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         'submittedBy': user.uid,
         'submittedByName': user.name,
         'submittedAt': FieldValue.serverTimestamp(),
-        'collegeId': collegeId,
-        'collegeName': user.college ?? 'Unknown College',
+        'collegeId': targetCollegeId,
+        'collegeName': collegeName,
         'role': user.role,
         'status': 'pending', // pending, approved, rejected
         'reviewedBy': null,
@@ -278,28 +370,26 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         'reviewedAt': null,
       };
 
-      if (_collegeLocation != null) {
-        submissionData['college'] = {
-          'id': _collegeLocation!['id'] ?? collegeId,
-          'name': _collegeLocation!['name'] ?? user.college ?? 'Unknown College',
-          'email': _collegeLocation!['email'],
-          'phone': _collegeLocation!['phone'],
-          'address': _collegeLocation!['address'],
-          'location': _collegeLocation!['location'],
-          'latitude': _collegeLocation!['latitude'],
-          'longitude': _collegeLocation!['longitude'],
-        };
-      } else if (collegeId != null) {
-        submissionData['college'] = {
-          'id': collegeId,
-          'name': user.college ?? 'Unknown College',
-        };
+      if (collegeData != null) {
+        submissionData['college'] = collegeData;
       }
 
-      await _firestoreService.addEnrollmentSubmission(submissionData);
+      if (_editingSubmissionId != null) {
+        // Update existing submission
+        // Keep original submission data but update content and add review metadata
+        submissionData['reviewedBy'] = _userId;
+        submissionData['reviewedByName'] = _currentUserName;
+        submissionData['reviewedAt'] = FieldValue.serverTimestamp();
+        
+        await _firestoreService.updateEnrollmentSubmission(_editingSubmissionId!, submissionData);
+      } else {
+        // Create new submission
+        await _firestoreService.addEnrollmentSubmission(submissionData);
+      }
       
-      // Reset form
+      // Reset form and editing state
       setState(() {
+        _editingSubmissionId = null;
         _selectedStream = '';
         _selectedSemester = '';
         _selectedCourse = '';
@@ -316,7 +406,9 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enrollment data submitted successfully!')),
+          SnackBar(content: Text(_editingSubmissionId != null 
+            ? 'Enrollment data updated successfully!' 
+            : 'Enrollment data submitted successfully!')),
         );
       }
     } catch (e) {
@@ -428,10 +520,17 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   void _editSubmission(Map<String, dynamic> submission) {
     // Pre-fill form with submission data
     setState(() {
+      _editingSubmissionId = submission['id'];
       _selectedStream = submission['stream'] ?? '';
       _selectedSemester = submission['semester'] ?? '';
       _selectedCourse = submission['course'] ?? '';
       
+      final collegeId = submission['collegeId'] ?? submission['college']?['id'];
+      if (collegeId != null && _colleges.any((c) => c['id'] == collegeId)) {
+        _selectedCollegeId = collegeId;
+        _updateCollegeLocation(); 
+      }
+
       // Load student data
       final studentData = submission['studentData'] as Map<String, dynamic>?;
       if (studentData != null) {
@@ -474,8 +573,39 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                   padding: const EdgeInsets.all(AppTheme.spacingLG),
                   child: Column(
                     children: [
-                      // Form Card
-                      _buildFormCard(),
+                      // Form Card - Only visible if:
+                      // 1. Not a Principal (Ministerial Staff can always submit)
+                      // 2. OR Principal is currently Editing
+                      if (!_isPrincipal || _editingSubmissionId != null)
+                        _buildFormCard(),
+                      
+                      // Message for Principals when NOT editing
+                      if (_isPrincipal && _editingSubmissionId == null)
+                        Container(
+                          padding: const EdgeInsets.all(AppTheme.spacingLG),
+                          margin: const EdgeInsets.only(bottom: AppTheme.spacingMD),
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: AppTheme.white,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                              border: Border.all(color: AppTheme.borderLight, width: 0.5),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(Icons.info_outline, size: 48, color: AppTheme.primary),
+                              const SizedBox(height: AppTheme.spacingMD),
+                              const Text(
+                                'Select a submission below to view details, edit, approve, or reject.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: AppTheme.text,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       
                       // Student Data Input (shown when form is filled)
                       if (_selectedStream.isNotEmpty && _selectedSemester.isNotEmpty && _selectedCourse.isNotEmpty)
@@ -543,15 +673,62 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Stream Selection
-          _buildDropdownField(
-            'Stream *',
-            _selectedStream,
-            _streams,
-            (value) => setState(() => _selectedStream = value),
-            'Select Stream',
-            Icons.description,
+          // College Selection (if multiple available)
+           Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'College',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.text,
+                ),
+              ),
+              const SizedBox(height: AppTheme.spacingXS),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundDark,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedCollegeId,
+                    isExpanded: true,
+                    hint: const Text('Select College'),
+                    icon: const Icon(Icons.arrow_drop_down, color: AppTheme.text),
+                    items: _colleges.map((college) {
+                      return DropdownMenuItem<String>(
+                        value: college['id'],
+                        child: Text(
+                          college['name'] ?? 'Unknown',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _selectedCollegeId = newValue;
+                          // If editing, user might be changing the college of the edit? 
+                          // Or we reset edit? 
+                          // Principals might want to look at other colleges.
+                          // If we change college, we should probably fetch recent submissions for THAT college.
+                        });
+                        _updateCollegeLocation();
+                        _fetchRecentSubmissions();
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppTheme.spacingLG),
+            ],
           ),
+
+          // Course Selection (was called "Stream" before)
+          _buildDynamicCourseDropdown(),
           
           const SizedBox(height: AppTheme.spacingLG),
           
@@ -560,15 +737,8 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
           
           const SizedBox(height: AppTheme.spacingLG),
           
-          // Course Selection
-          _buildDropdownField(
-            'Course *',
-            _selectedCourse,
-            _courses,
-            (value) => setState(() => _selectedCourse = value),
-            'Select Course',
-            Icons.description,
-          ),
+          // Stream Selection (was called "Course" before)
+          _buildDynamicStreamDropdown(),
         ],
       ),
     );
@@ -680,6 +850,126 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
     );
   }
 
+  Widget _buildDynamicCourseDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Course *',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.text,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingXS),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+          decoration: BoxDecoration(
+            color: AppTheme.backgroundDark,
+            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+          ),
+          child: _loadingCourses
+              ? const Padding(
+                  padding: EdgeInsets.all(AppTheme.spacingMD),
+                  child: Center(
+                    child: SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              : DropdownButton<String>(
+                  value: _selectedCourse.isEmpty ? null : _selectedCourse,
+                  isExpanded: true,
+                  underline: const SizedBox(),
+                  icon: const Icon(Icons.arrow_drop_down, color: AppTheme.text),
+                  hint: const Row(
+                    children: [
+                      Icon(Icons.school, size: 18, color: AppTheme.textSecondary),
+                      SizedBox(width: AppTheme.spacingSM),
+                      Text(
+                        'Select Course',
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                  items: _coursesData.map((course) {
+                    return DropdownMenuItem<String>(
+                      value: course['name'],
+                      child: Text(course['name'] ?? ''),
+                    );
+                  }).toList(),
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _onCourseSelected(newValue);
+                    }
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDynamicStreamDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Stream *',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.text,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingXS),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+          decoration: BoxDecoration(
+            color: AppTheme.backgroundDark,
+            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+          ),
+          child: DropdownButton<String>(
+            value: _selectedStream.isEmpty ? null : _selectedStream,
+            isExpanded: true,
+            underline: const SizedBox(),
+            icon: const Icon(Icons.arrow_drop_down, color: AppTheme.text),
+            hint: Row(
+              children: [
+                const Icon(Icons.description, size: 18, color: AppTheme.textSecondary),
+                const SizedBox(width: AppTheme.spacingSM),
+                Text(
+                  _selectedCourse.isEmpty 
+                      ? 'Select course first' 
+                      : 'Select Stream',
+                  style: const TextStyle(color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+            items: _availableStreams.map((stream) {
+              return DropdownMenuItem<String>(
+                value: stream,
+                child: Text(stream),
+              );
+            }).toList(),
+            onChanged: _selectedCourse.isEmpty
+                ? null
+                : (newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        _selectedStream = newValue;
+                      });
+                    }
+                  },
+          ),
+        ),
+      ],
+    );
+  }
+
+
   Widget _buildStudentDataCard() {
     final totals = _calculateTotals();
     final categoryTotals = _calculateCategoryTotals();
@@ -781,6 +1071,44 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                     ),
             ),
           ),
+          
+          // Cancel Edit Button
+          if (_editingSubmissionId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: AppTheme.spacingMD),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () {
+                    setState(() {
+                      _editingSubmissionId = null;
+                      _selectedStream = '';
+                      _selectedSemester = '';
+                      _selectedCourse = '';
+                      _studentData.forEach((key, value) {
+                        value['male'] = '';
+                        value['female'] = '';
+                      });
+                    });
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                    side: const BorderSide(color: AppTheme.error),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                    ),
+                  ),
+                  child: const Text(
+                    'Cancel Edit',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.error,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

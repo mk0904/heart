@@ -154,7 +154,7 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
   }
 
   void _handleUserPress(Map<String, dynamic> user) {
-    if (_currentUserRole == 'principal') {
+    if (_currentUserRole?.toLowerCase() == 'principal') {
       _showUserStatusModal(user);
     }
   }
