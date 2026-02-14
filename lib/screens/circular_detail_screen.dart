@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
@@ -338,34 +339,44 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppTheme.spacingLG),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Circular Content
-                    _buildCircularCard(),
-                    
-                    // Attachments Section
-                    if (_attachments.isNotEmpty) _buildAttachmentsSection(),
-                    
-                    // Comments Section
-                    _buildCommentsSection(),
-                  ],
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Circular Content
+                      _buildCircularCard(),
+                      
+                      // Attachments Section
+                      if (_attachments.isNotEmpty) _buildAttachmentsSection(),
+                      
+                      // Comments Section
+                      _buildCommentsSection(),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -377,11 +388,8 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
         horizontal: AppTheme.spacingLG,
         vertical: AppTheme.spacingBase,
       ),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
-        ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
       ),
       child: Row(
         children: [
@@ -412,7 +420,7 @@ class _CircularDetailScreenState extends State<CircularDetailScreen> {
       padding: const EdgeInsets.all(AppTheme.spacingLG),
       margin: const EdgeInsets.only(bottom: AppTheme.spacingLG),
       decoration: BoxDecoration(
-        color: AppTheme.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusBase),
         border: Border.all(color: AppTheme.borderLight, width: 0.5),
       ),

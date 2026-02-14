@@ -5,9 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../main.dart';
 import '../models/user_profile.dart';
 import '../services/firebase_storage_service.dart';
+import 'welcome_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final bool isCompleteProfile;
@@ -87,7 +87,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
       
       _userId = user.uid;
-      _nameController.text = user.name ?? '';
+      _nameController.text = user.name;
       _phoneController.text = user.phoneNumber ?? '';
       _payBandController.text = user.payBand ?? '';
       _employmentType = user.employmentType;
@@ -292,11 +292,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         );
         
-        // If in complete profile mode, navigate to AuthWrapper to check active status
+        // If in complete profile mode, navigate to root to re-check everything
         if (widget.isCompleteProfile || _isProfileIncomplete) {
-          Navigator.pushReplacement(
+          Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (context) => const AuthWrapper()),
+            MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+            (route) => false,
           );
         } else {
           Navigator.pop(context, true);
@@ -669,13 +670,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         : 'U';
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.backgroundDark,
+        color: AppTheme.primary.withOpacity(0.1),
       ),
       child: Center(
-        child: Icon(
-          Icons.person,
-          size: 50,
-          color: AppTheme.textSecondary,
+        child: Text(
+          initial,
+          style: const TextStyle(
+            fontSize: 40,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.primary,
+          ),
         ),
       ),
     );
@@ -751,7 +755,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required void Function(String?) onChanged,
   }) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(

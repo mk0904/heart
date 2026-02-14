@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import '../services/face_detection_service.dart';
 import '../services/face_recognition_service.dart';
@@ -96,6 +97,21 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
   Future<void> _initializeCamera() async {
     try {
+      // Check camera permission
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Camera permission is required for attendance'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
+
       _cameras = await availableCameras();
       if (_cameras != null && _cameras!.isNotEmpty) {
         // Find front camera index (default to front camera)

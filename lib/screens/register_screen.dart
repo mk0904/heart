@@ -1,16 +1,14 @@
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import '../services/face_detection_service.dart';
 import '../services/face_recognition_service.dart';
 import '../services/attendance_service.dart';
 import '../services/firebase_auth_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -68,6 +66,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _initializeCamera() async {
     try {
+      // Check camera permission
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Camera permission is required for registration'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
+
       _cameras = await availableCameras();
       if (_cameras != null && _cameras!.isNotEmpty) {
         // Find front camera index (default to front camera)

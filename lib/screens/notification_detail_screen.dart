@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
@@ -85,7 +86,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
         .listen((snapshot) {
       if (!snapshot.exists) return;
       
-      final data = snapshot.data() as Map<String, dynamic>?;
+      final data = snapshot.data();
       if (data == null) return;
       
       // Update comments
@@ -99,7 +100,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
       
       if (mounted) {
         setState(() {
-          _comments = sorted.map((c) => c as Map<String, dynamic>).toList();
+          _comments = sorted.map((c) => c).toList();
         });
       }
     });
@@ -264,31 +265,40 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     final fileUrls = notification['fileUrls'] as List? ?? [];
     final type = notification['type'] ?? '';
 
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: Colors.white,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Main Content Card
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.all(AppTheme.spacingLG),
-                      padding: const EdgeInsets.all(AppTheme.spacing2XL),
-                      decoration: BoxDecoration(
-                        color: AppTheme.white,
-                        borderRadius: BorderRadius.circular(AppTheme.radiusLG),
-                        border: Border.all(color: AppTheme.borderLight, width: 0.5),
-                        boxShadow: AppTheme.shadowSM,
-                      ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Main Content Card
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.all(AppTheme.spacingLG),
+                        padding: const EdgeInsets.all(AppTheme.spacing2XL),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+                          border: Border.all(color: AppTheme.borderLight, width: 0.5),
+                          boxShadow: AppTheme.shadowSM,
+                        ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -360,10 +370,10 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
                               final url = attachment is String ? attachment : attachment['url'] ?? '';
                               final name = attachment is Map ? attachment['name'] ?? 'Attachment' : 'Attachment';
                               return _buildAttachmentItem(name, url);
-                            }).toList(),
+                            }),
                             ...fileUrls.map((url) {
                               return _buildAttachmentItem('File', url);
-                            }).toList(),
+                            }),
                           ],
                         ),
                       ),
@@ -443,6 +453,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -454,11 +465,8 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
         horizontal: AppTheme.spacingMD,
         vertical: AppTheme.spacingBase,
       ),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
-        ),
       ),
       child: Row(
         children: [

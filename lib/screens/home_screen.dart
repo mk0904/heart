@@ -46,6 +46,15 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadNotifications();
     _loadUnreadCount();
     _startListening();
+    _requestNotificationPermission();
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    // Small delay to ensure UI is ready
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      await _notificationService.requestPermission();
+    }
   }
 
   Future<void> _loadNotifications() async {
@@ -926,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ..._notifications.map((notification) {
                   final isRead = _isRead(notification);
                   return _buildNotificationItem(notification, isRead);
-                }).toList(),
+                }),
                 if (_notifications.length >= 3)
                   GestureDetector(
                     onTap: () async {

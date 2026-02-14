@@ -89,7 +89,7 @@ class FirebaseAuthService {
         throw Exception('User profile not found');
       }
 
-      final data = userDoc.data() as Map<String, dynamic>?;
+      final data = userDoc.data();
       if (data == null) {
         throw Exception('User profile data is null');
       }
@@ -125,7 +125,7 @@ class FirebaseAuthService {
         return null;
       }
 
-      final data = userDoc.data() as Map<String, dynamic>?;
+      final data = userDoc.data();
       if (data == null) {
         return null;
       }
@@ -178,5 +178,20 @@ class FirebaseAuthService {
     }
 
     return Exception(message);
+  }
+
+  /// Check if the user's profile is complete
+  Future<bool> isProfileComplete(String uid) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists) return false;
+      
+      final data = userDoc.data();
+      if (data == null) return false;
+      
+      return data['profileCompleted'] ?? false;
+    } catch (e) {
+      return false;
+    }
   }
 }

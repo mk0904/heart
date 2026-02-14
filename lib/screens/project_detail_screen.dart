@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
@@ -143,42 +144,52 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                // Header
-                _buildHeader(),
-                
-                // Content
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(AppTheme.spacingLG),
-                    child: Column(
-                      children: [
-                        // Project Info Card
-                        _buildProjectCard(),
-                        
-                        // New Submission Button
-                        if (widget.project['status']?.toLowerCase() != 'completed' && 
-                            _userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff')
-                          _buildNewSubmissionButton(),
-                        
-                        // Submissions Section
-                        _buildSubmissionsSection(),
-                      ],
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // Header
+                  _buildHeader(),
+                  
+                  // Content
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(AppTheme.spacingLG),
+                      child: Column(
+                        children: [
+                          // Project Info Card
+                          _buildProjectCard(),
+                          
+                          // New Submission Button
+                          if (widget.project['status']?.toLowerCase() != 'completed' && 
+                              _userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff')
+                            _buildNewSubmissionButton(),
+                          
+                          // Submissions Section
+                          _buildSubmissionsSection(),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            
-            // Fullscreen Image Viewer
-            if (_viewerVisible) _buildImageViewer(),
-          ],
+                ],
+              ),
+              
+              // Fullscreen Image Viewer
+              if (_viewerVisible) _buildImageViewer(),
+            ],
+          ),
         ),
       ),
     );

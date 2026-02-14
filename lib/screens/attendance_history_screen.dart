@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/attendance_service.dart';
 import '../models/daily_attendance.dart';
 import '../theme/app_theme.dart';
@@ -57,26 +58,36 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Filters
-            _buildFilters(),
-            
-            // Records List
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _dailyRecords.isEmpty
-                      ? _buildEmptyState()
-                      : _buildRecordsList(),
-            ),
-          ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
+      child: SafeArea(
+        child: Scaffold(
+          backgroundColor: AppTheme.backgroundLight,
+          body: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Filters
+              _buildFilters(),
+              
+              // Records List
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _dailyRecords.isEmpty
+                        ? _buildEmptyState()
+                        : _buildRecordsList(),
+              ),
+            ],
+          ),
         ),
       ),
     );

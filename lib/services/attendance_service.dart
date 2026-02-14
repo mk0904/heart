@@ -103,20 +103,17 @@ class AttendanceService {
           // Store in local Hive storage
           final person = Person(
             id: user.uid,
-            name: user.name,
+            name: user.name ?? 'User',
             employeeId: user.uid,
             faceEmbedding: firebaseEmbedding,
             registeredAt: DateTime.now(),
           );
           
-          await _personsBox.put(person.id, person);
-
-          // print('Synced face embedding from Firebase to local storage');
+          await _personsBox.put(user.uid, person);
         }
       }
     } catch (e) {
-      // print('Error syncing face embedding from Firebase: $e');
-      // Non-critical, continue silently
+      // Error is non-critical, continue silently
     }
   }
 
@@ -260,29 +257,25 @@ class AttendanceService {
       if (todayRecord != null) {
         final data = todayRecord.data() as Map<String, dynamic>?;
         if (data != null) {
-          // Check events array (new format)
+          // Check events array
           final events = List<Map<String, dynamic>>.from(
             (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
           );
           
-          // Handle backward compatibility
-          if (events.isEmpty) {
-            if (data['checkInTime'] != null) {
-              events.add({'type': 'check_in', 'time': data['checkInTime'] as String});
-            }
-            if (data['checkoutTime'] != null) {
-              events.add({'type': 'check_out', 'time': data['checkoutTime'] as String});
-            }
+          if (events.isNotEmpty) {
+            // Sort by time to ensure correct order
+            events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+            return events.last['type'] == 'check_in';
           }
           
-          // User is checked in if last event is check_in
-          if (events.isNotEmpty) {
-            return events.last['type'] == 'check_in';
+          // Fallback to top-level fields only if events is empty
+          if (data['checkInTime'] != null && data['checkoutTime'] == null) {
+            return true;
           }
         }
       }
     } catch (e) {
-      // print('Error checking Firebase attendance: $e');
+      // Silent error
     }
 
     // Fallback to local storage (check for check-in without check-out)
@@ -465,10 +458,12 @@ class AttendanceService {
     }
   }
 
-  /// Auto-checkout users who haven't checked out by midnight
-  /// This checks yesterday's records and auto-checks them out at 11:59 PM
+  /// Auto-checkout the current user if they haven't checked out by midnight yesterday
   Future<void> checkAutoCheckout() async {
     try {
+      final user = await _authService.getCurrentUser();
+      if (user == null) return;
+
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
       
@@ -476,13 +471,14 @@ class AttendanceService {
       final yesterday = todayStart.subtract(const Duration(days: 1));
       final yesterdayStr = yesterday.toIso8601String().split('T')[0];
       
-      // Find all attendance records for yesterday
-      final allRecords = await _firestore
+      // Find current user's attendance record for yesterday
+      final userRecords = await _firestore
           .collection('attendance')
+          .where('userId', isEqualTo: user.uid)
           .get();
       
-      // Filter yesterday's records in memory (to avoid index requirement)
-      final yesterdayRecords = allRecords.docs.where((doc) {
+      // Filter yesterday's records in memory to avoid index requirements for date field
+      final yesterdayRecords = userRecords.docs.where((doc) {
         final data = doc.data();
         final dateStr = data['date'] as String?;
         if (dateStr == yesterdayStr) return true;
@@ -507,12 +503,12 @@ class AttendanceService {
         final data = doc.data() as Map<String, dynamic>?;
         if (data == null) continue;
         
-        // Get events array (new format)
+        // Get events array
         final events = List<Map<String, dynamic>>.from(
           (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
         );
         
-        // Handle backward compatibility
+        // If events is empty but we have check-in/out fields, reconstruct once
         if (events.isEmpty) {
           if (data['checkInTime'] != null) {
             events.add({
@@ -530,6 +526,11 @@ class AttendanceService {
           }
         }
         
+        // Sort to be sure
+        if (events.isNotEmpty) {
+          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+        }
+        
         // If last event is check_in, auto-checkout at 11:59 PM
         if (events.isNotEmpty && events.last['type'] == 'check_in') {
           final midnight = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
@@ -541,12 +542,12 @@ class AttendanceService {
           
           await doc.reference.update({
             'events': events,
-            'checkoutTime': midnight.toIso8601String(), // backward compat
-            'checkoutConfidence': 1.0, // backward compat
+            'checkoutTime': midnight.toIso8601String(),
+            'checkoutConfidence': 1.0,
             'autoCheckedOut': true,
+            'type': 'check_out',
             'updatedAt': DateTime.now().toIso8601String(),
           });
-          // print('Auto-checked out user ${data['userId']} for date $yesterdayStr');
         }
       }
     } catch (e) {
@@ -615,20 +616,12 @@ class AttendanceService {
             (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
           );
           
-          // Backward compatibility
-          if (events.isEmpty) {
-            if (data['checkInTime'] != null) {
-              events.add({'type': 'check_in', 'time': data['checkInTime'] as String});
-            }
-            if (data['checkoutTime'] != null) {
-              events.add({'type': 'check_out', 'time': data['checkoutTime'] as String});
-            }
-          }
-          
           if (events.isNotEmpty) {
-            // Sort by time to be sure
             events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
             lastStatus = events.last['type'] as String?;
+          } else if (data['checkInTime'] != null) {
+            // Fallback for old format
+            lastStatus = data['checkoutTime'] == null ? 'check_in' : 'check_out';
           }
         }
       }
@@ -705,58 +698,44 @@ class AttendanceService {
         final recordData = todayRecord.data() as Map<String, dynamic>?;
         if (recordData != null) {
           final updateData = <String, dynamic>{};
+          
+          // Get current events or initialize empty
           final events = List<Map<String, dynamic>>.from(
             (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
           );
 
-          if (events.isEmpty) {
-            if (recordData['checkInTime'] != null) {
-              events.add({
-                'type': 'check_in',
-                'time': recordData['checkInTime'] as String,
-                'confidence': (recordData['checkInConfidence'] as num?)?.toDouble() ?? 0.0,
-                if (recordData['latitude'] != null) 'latitude': recordData['latitude'],
-                if (recordData['longitude'] != null) 'longitude': recordData['longitude'],
-              });
-            }
-            if (recordData['checkoutTime'] != null) {
-              events.add({
-                'type': 'check_out',
-                'time': recordData['checkoutTime'] as String,
-                'confidence': (recordData['checkoutConfidence'] as num?)?.toDouble() ?? 0.0,
-                if (recordData['latitude'] != null) 'latitude': recordData['latitude'],
-                if (recordData['longitude'] != null) 'longitude': recordData['longitude'],
-              });
-            }
-          }
-
+          // Add new event
           final newEvent = {
             'type': type,
             'time': timestamp.toIso8601String(),
             'confidence': confidence,
+            if (latitude != null && longitude != null) 'latitude': latitude,
+            if (latitude != null && longitude != null) 'longitude': longitude,
           };
-          if (latitude != null && longitude != null) {
-            newEvent['latitude'] = latitude;
-            newEvent['longitude'] = longitude;
-          }
           events.add(newEvent);
+          
+          // Sort events by time to ensure order
+          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
 
+          // Prepare update data
           updateData['events'] = events;
-          final lastCheckIn = events.lastWhere((e) => e['type'] == 'check_in', orElse: () => {});
-          final lastCheckOut = events.lastWhere((e) => e['type'] == 'check_out', orElse: () => {});
+          
+          // Update top-level status fields for backward compatibility and quick lookups
+          if (type == 'check_in') {
+            updateData['checkInTime'] = timestamp.toIso8601String();
+            updateData['checkInConfidence'] = confidence;
+            updateData['type'] = 'check_in';
+          } else if (type == 'check_out') {
+            updateData['checkoutTime'] = timestamp.toIso8601String();
+            updateData['checkoutConfidence'] = confidence;
+            updateData['type'] = 'check_out';
+          }
 
-          if (lastCheckIn.isNotEmpty) {
-            updateData['checkInTime'] = lastCheckIn['time'];
-            updateData['checkInConfidence'] = lastCheckIn['confidence'];
-          }
-          if (lastCheckOut.isNotEmpty) {
-            updateData['checkoutTime'] = lastCheckOut['time'];
-            updateData['checkoutConfidence'] = lastCheckOut['confidence'];
-          }
           if (latitude != null && longitude != null) {
             updateData['latitude'] = latitude;
             updateData['longitude'] = longitude;
           }
+
           updateData['personName'] = person.name;
           updateData['personId'] = person.id;
           updateData['employeeId'] = person.employeeId;
@@ -870,22 +849,9 @@ class AttendanceService {
                 (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
               );
               
-              // Handle backward compatibility
-              if (existingEvents.isEmpty) {
-                if (recordData['checkInTime'] != null) {
-                  existingEvents.add({
-                    'type': 'check_in',
-                    'time': recordData['checkInTime'] as String,
-                    'confidence': (recordData['checkInConfidence'] as num?)?.toDouble() ?? 0.0,
-                  });
-                }
-                if (recordData['checkoutTime'] != null) {
-                  existingEvents.add({
-                    'type': 'check_out',
-                    'time': recordData['checkoutTime'] as String,
-                    'confidence': (recordData['checkoutConfidence'] as num?)?.toDouble() ?? 0.0,
-                  });
-                }
+              // Sort to ensure order
+              if (existingEvents.isNotEmpty) {
+                existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
               }
               
               // Add new events from local storage (sorted by timestamp)
@@ -894,13 +860,13 @@ class AttendanceService {
               
               for (var record in sortedRecords) {
                 final timeStr = record.timestamp.toIso8601String();
-                // Check if event already exists (within 2 seconds)
+                // Check if event already exists (within 5 seconds to be safe)
                 final exists = existingEvents.any((e) {
                   try {
                     final existingTime = DateTime.parse(e['time'] as String);
                     final recordTime = record.timestamp;
                     return e['type'] == record.type && 
-                           (existingTime.difference(recordTime).abs().inSeconds <= 2);
+                           (existingTime.difference(recordTime).abs().inSeconds <= 5);
                   } catch (e) {
                     return false;
                   }
@@ -915,45 +881,28 @@ class AttendanceService {
                 }
               }
               
-              // Sort events by time
-              existingEvents.sort((a, b) {
-                try {
-                  return DateTime.parse(a['time'] as String)
-                      .compareTo(DateTime.parse(b['time'] as String));
-                } catch (e) {
-                  return 0;
-                }
-              });
+              // Sort again after adding new events
+              existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
               
-              Map<String, dynamic>? lastCheckIn;
-              Map<String, dynamic>? lastCheckOut;
-              
-              for (var event in existingEvents.reversed) {
-                if (lastCheckIn == null && event['type'] == 'check_in') {
-                  lastCheckIn = event;
-                }
-                if (lastCheckOut == null && event['type'] == 'check_out') {
-                  lastCheckOut = event;
-                }
-                if (lastCheckIn != null && lastCheckOut != null) break;
-              }
-              
-              final updateData = <String, dynamic>{
+              final lastCheckIn = existingEvents.lastWhere((e) => e['type'] == 'check_in', orElse: () => {});
+              final lastCheckOut = existingEvents.lastWhere((e) => e['type'] == 'check_out', orElse: () => {});
+
+              final updateData = {
                 'events': existingEvents,
-                'personName': records.first.personName,
                 'updatedAt': DateTime.now().toIso8601String(),
               };
-              
-              // Backward compatibility
-              if (lastCheckIn != null) {
+
+              if (lastCheckIn.isNotEmpty) {
                 updateData['checkInTime'] = lastCheckIn['time'];
                 updateData['checkInConfidence'] = lastCheckIn['confidence'];
+                updateData['type'] = existingEvents.last['type']; // Current status
               }
-              if (lastCheckOut != null) {
+              if (lastCheckOut.isNotEmpty) {
                 updateData['checkoutTime'] = lastCheckOut['time'];
                 updateData['checkoutConfidence'] = lastCheckOut['confidence'];
+                updateData['type'] = existingEvents.last['type']; // Current status
               }
-              
+
               await todayRecord.reference.update(updateData);
               
               // Mark all records for this date as synced

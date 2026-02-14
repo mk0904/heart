@@ -32,7 +32,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   
   double _percentage = 0;
   int _previousPercentage = 0;
-  List<File> _images = [];
+  final List<File> _images = [];
   bool _loading = false;
   bool _submitting = false;
   
@@ -428,7 +428,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
             color: AppTheme.text,
           ),
           decoration: InputDecoration(
-            labelText: 'Enter percentage (${_previousPercentage}-100)',
+            labelText: 'Enter percentage ($_previousPercentage-100)',
             labelStyle: const TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 15,
@@ -600,7 +600,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                 vertical: 4,
               ),
               decoration: BoxDecoration(
-                color: _images.length >= 1
+                color: _images.isNotEmpty
                     ? AppTheme.successLight
                     : AppTheme.warningLight,
                 borderRadius: BorderRadius.circular(999),
@@ -610,7 +610,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _images.length >= 1
+                  color: _images.isNotEmpty
                       ? AppTheme.success
                       : AppTheme.warning,
                 ),
@@ -718,135 +718,136 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.white,
+        statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
         statusBarBrightness: Brightness.light,
         systemNavigationBarColor: Colors.white,
         systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
       ),
       child: Scaffold(
         backgroundColor: Colors.white,
-        body: SafeArea(
-          child: Column(
-            children: [
-              // Header
-              _buildHeader(),
-              
-              // Content
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppTheme.spacing2XL),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: AppTheme.spacingXS),
-
-                      // Project Info
-                      Column(
+        body: _loading 
+          ? const Center(child: CircularProgressIndicator())
+          : SafeArea(
+              child: Column(
+                children: [
+                  _buildHeader(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(AppTheme.spacingLG),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            widget.project['name'] ?? 'Untitled Project',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.text,
-                            ),
-                          ),
-                          if (widget.project['description'] != null && 
-                              widget.project['description'].toString().isNotEmpty) ...[
-                            const SizedBox(height: AppTheme.spacingXS),
-                            Text(
-                              widget.project['description'] ?? '',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-
-                      const SizedBox(height: AppTheme.spacingLG),
-
-                      // College Selection AND Status (if applicable)
-                      if (_userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff' || _selectedCollegeId != null) ...[
-                        _buildCollegeSection(),
-                        const SizedBox(height: AppTheme.spacingLG),
-                      ],
-                      
-                      if (_userRole?.toLowerCase() == 'principal' || _submissionStatus != 'Pending') ...[
-                        _buildStatusSection(),
-                        const SizedBox(height: AppTheme.spacingLG),
-                      ],
-
-                      // Percentage Selection
-                      _buildPercentageSection(),
-
-                      const SizedBox(height: AppTheme.spacingLG),
-
-                      // Notes Input
-                      _buildInputField(
-                        controller: _notesController,
-                        label: 'Progress Notes',
-                        icon: Icons.note_outlined,
-                        maxLines: 4,
-                      ),
-
-                      const SizedBox(height: AppTheme.spacingLG),
-
-                      // Image Upload
-                      _buildImagesSection(),
-
-                      const SizedBox(height: AppTheme.spacing2XL),
-
-                      // Submit Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: (_submitting ||
-                                  _previousPercentage >= 100 ||
-                                  _percentage < _previousPercentage ||
-                                  _notesController.text.trim().isEmpty ||
-                                  _images.isEmpty)
-                              ? null
-                              : _handleSubmit,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primary,
-                            disabledBackgroundColor: AppTheme.backgroundDark,
-                            padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
-                            shape: RoundedRectangleBorder(
+                          // Project Info Card
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(AppTheme.spacingMD),
+                            decoration: BoxDecoration(
+                              color: AppTheme.white,
                               borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                              border: Border.all(color: AppTheme.borderLight, width: 0.5),
+                              boxShadow: AppTheme.shadowSM,
                             ),
-                          ),
-                          child: _submitting
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.white),
-                                  ),
-                                )
-                              : const Text(
-                                  'Submit Progress',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.white,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.project['name'] ?? 'Untitled Project',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.text,
                                   ),
                                 ),
-                        ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.project['description'] ?? 'No description provided',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          
+                          const SizedBox(height: AppTheme.spacingXL),
+                          
+                          // Form
+                          _buildPercentageSection(),
+                          
+                          const SizedBox(height: AppTheme.spacingXL),
+                          
+                          if (_userRole?.toLowerCase().replaceAll('-', ' ') == 'ministerial staff') ...[
+                            _buildCollegeSection(),
+                            const SizedBox(height: AppTheme.spacingXL),
+                          ],
+                          
+                          if (_userRole?.toLowerCase() == 'principal' && widget.submissionId != null) ...[
+                            _buildStatusSection(),
+                            const SizedBox(height: AppTheme.spacingXL),
+                          ],
+                          
+                          _buildInputField(
+                            controller: _notesController,
+                            label: 'Progress Notes',
+                            icon: Icons.notes,
+                            maxLines: 4,
+                          ),
+                          
+                          const SizedBox(height: AppTheme.spacingXL),
+                          
+                          _buildImagesSection(),
+                          
+                          const SizedBox(height: AppTheme.spacing2XL),
+                          
+                          // Submit Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 54,
+                            child: ElevatedButton(
+                              onPressed: (_submitting ||
+                                      _previousPercentage >= 100 ||
+                                      _percentage < _previousPercentage ||
+                                      _notesController.text.trim().isEmpty ||
+                                      _images.isEmpty)
+                                  ? null
+                                  : _handleSubmit,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primary,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: _submitting
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Submit Progress Update',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: AppTheme.spacing2XL),
+                        ],
                       ),
-
-                      const SizedBox(height: AppTheme.spacingXL),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
       ),
     );
   }

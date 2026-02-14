@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../services/attendance_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -218,51 +219,61 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Content
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: _handleRefresh,
-                      child: CustomScrollView(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                        // Cards Section
-                        SliverPadding(
-                          padding: const EdgeInsets.all(AppTheme.spacingLG),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-                              // Status Card
-                              _buildStatusCard(),
-                              const SizedBox(height: AppTheme.spacingMD),
-                              
-                              // Action Buttons Card
-                              _buildActionsCard(),
-                              const SizedBox(height: AppTheme.spacingXL),
-                              
-                              // History Section
-                              _buildHistorySection(),
-                            ]),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
+      child: SafeArea(
+        child: Scaffold(
+          backgroundColor: AppTheme.backgroundLight,
+          body: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Content
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: _handleRefresh,
+                        child: CustomScrollView(
+                          controller: _scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                          // Cards Section
+                          SliverPadding(
+                            padding: const EdgeInsets.all(AppTheme.spacingLG),
+                            sliver: SliverList(
+                              delegate: SliverChildListDelegate([
+                                // Status Card
+                                _buildStatusCard(),
+                                const SizedBox(height: AppTheme.spacingMD),
+                                
+                                // Action Buttons Card
+                                _buildActionsCard(),
+                                const SizedBox(height: AppTheme.spacingXL),
+                                
+                                // History Section
+                                _buildHistorySection(),
+                              ]),
+                            ),
                           ),
+                          
+                          const SliverToBoxAdapter(
+                            child: SizedBox(height: 90),
+                          ),
+                        ],
                         ),
-                        
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: 90),
-                        ),
-                      ],
                       ),
-                    ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -183,61 +184,72 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Content
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: _handleRefresh,
-                child: CustomScrollView(
-                  controller: _scrollController,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                  // Search
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppTheme.spacingLG),
-                      child: _buildSearchBar(),
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Content
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _handleRefresh,
+                  color: AppTheme.primary,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                    // Search
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppTheme.spacingLG),
+                        child: _buildSearchBar(),
+                      ),
                     ),
-                  ),
-                  
-                  // Circulars List
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
-                    sliver: _loading
-                        ? SliverToBoxAdapter(
-                            child: _buildSkeleton(),
-                          )
-                        : _filteredCirculars.isEmpty
-                            ? SliverToBoxAdapter(
-                                child: _buildEmptyState(),
-                              )
-                            : SliverList(
-                                delegate: SliverChildBuilderDelegate(
-                                  (context, index) {
-                                    final circular = _filteredCirculars[index];
-                                    final isLast = index == _filteredCirculars.length - 1;
-                                    return _buildCircularCard(circular, isLast);
-                                  },
-                                  childCount: _filteredCirculars.length,
+                    
+                    // Circulars List
+                    SliverPadding( 
+                      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
+                      sliver: _loading
+                          ? SliverToBoxAdapter(
+                              child: _buildSkeleton(),
+                            )
+                          : _filteredCirculars.isEmpty
+                              ? SliverToBoxAdapter(
+                                  child: _buildEmptyState(),
+                                )
+                              : SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (context, index) {
+                                      final circular = _filteredCirculars[index];
+                                      final isLast = index == _filteredCirculars.length - 1;
+                                      return _buildCircularCard(circular, isLast);
+                                    },
+                                    childCount: _filteredCirculars.length,
+                                  ),
                                 ),
-                              ),
+                    ),
+                    
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 90),
+                    ),
+                  ],
                   ),
-                  
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: 90),
-                  ),
-                ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -249,11 +261,8 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
         horizontal: AppTheme.spacingLG,
         vertical: AppTheme.spacingBase,
       ),
-      decoration: BoxDecoration(
-        color: AppTheme.background,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
-        ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -286,7 +295,7 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
                 child: Container(
                   width: 40,
                   height: 40,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: AppTheme.backgroundDark,
                     shape: BoxShape.circle,
                   ),
@@ -307,7 +316,7 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
   Widget _buildSearchBar() {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusBase),
         border: Border.all(color: AppTheme.borderLight, width: 0.5),
         boxShadow: AppTheme.shadowSM,
@@ -320,7 +329,7 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
           prefixIcon: const Icon(Icons.search, size: 18, color: AppTheme.textSecondary),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.close, size: 16, color: AppTheme.white),
+                  icon: const Icon(Icons.close, size: 16, color: AppTheme.textSecondary),
                   onPressed: () {
                     _searchController.clear();
                   },
@@ -350,7 +359,7 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
         margin: EdgeInsets.only(bottom: isLast ? 0 : AppTheme.spacingMD),
         padding: const EdgeInsets.all(AppTheme.spacingMD),
         decoration: BoxDecoration(
-          color: AppTheme.white,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(AppTheme.radiusBase),
           border: Border.all(color: AppTheme.borderLight, width: 0.5),
           boxShadow: AppTheme.shadowSM,

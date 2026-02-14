@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'firestore_service.dart';
@@ -19,22 +18,13 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // Request permissions (optional - app will still work without them)
+    // Initialize local notifications
     try {
-      NotificationSettings settings = await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-
-      // Initialize local notifications even if permission not granted
-      // (for in-app notifications)
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       const iosSettings = DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
+        requestAlertPermission: false, // Don't ask on init
+        requestBadgePermission: false,
+        requestSoundPermission: false,
       );
       const initSettings = InitializationSettings(
         android: androidSettings,
@@ -46,8 +36,7 @@ class NotificationService {
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
     } catch (e) {
-      // If notification permissions fail, continue anyway
-      print('Notification permission error: $e');
+      print('Notification init error: $e');
     }
 
     // Get current user and start listening (works regardless of permissions)
@@ -69,6 +58,24 @@ class NotificationService {
     });
 
     _initialized = true;
+  }
+
+  /// Request notification permissions
+  Future<bool> requestPermission() async {
+    try {
+      NotificationSettings settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      
+      return settings.authorizationStatus == AuthorizationStatus.authorized ||
+             settings.authorizationStatus == AuthorizationStatus.provisional;
+    } catch (e) {
+      print('Notification permission error: $e');
+      return false;
+    }
   }
 
   /// Start listening for notifications

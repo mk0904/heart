@@ -83,12 +83,10 @@ class AppTheme {
         primary: primary,
         secondary: secondary,
         surface: background,
-        background: backgroundLight,
         error: error,
         onPrimary: white,
         onSecondary: white,
         onSurface: text,
-        onBackground: text,
         onError: white,
       ),
       scaffoldBackgroundColor: white, // Changed from backgroundLight to white
@@ -97,9 +95,11 @@ class AppTheme {
         foregroundColor: text,
         elevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarColor: Colors.white, // Android
-          statusBarIconBrightness: Brightness.dark, // Android
-          statusBarBrightness: Brightness.light, // iOS (Light background = Dark icons)
+          statusBarColor: Colors.white,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.white,
+          systemNavigationBarIconBrightness: Brightness.dark,
         ),
       ),
       cardTheme: CardThemeData(

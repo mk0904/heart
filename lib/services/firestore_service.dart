@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_profile.dart';
 
@@ -11,10 +12,11 @@ class FirestoreService {
     try {
       final doc = await _firestore.collection('users').doc(userId).get();
       if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) return null;
       return UserProfile.fromFirestore(data, doc.id);
     } catch (e) {
+      debugPrint('Error getting user: $e');
       throw Exception('Failed to get user: ${e.toString()}');
     }
   }
@@ -37,6 +39,7 @@ class FirestoreService {
           })
           .toList();
     } catch (e) {
+      debugPrint('Error getting users: $e');
       throw Exception('Failed to get users: ${e.toString()}');
     }
   }
@@ -63,6 +66,7 @@ class FirestoreService {
     try {
       await _firestore.collection('users').doc(userId).update(data);
     } catch (e) {
+      debugPrint('Error updating user: $e');
       throw Exception('Failed to update user: ${e.toString()}');
     }
   }
@@ -116,7 +120,7 @@ class FirestoreService {
     try {
       final doc = await _firestore.collection('projects').doc(projectId).get();
       if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
@@ -149,7 +153,7 @@ class FirestoreService {
       
       List<Map<String, dynamic>> submissions = snapshot.docs
           .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return {
               'id': doc.id,
               ...data,
@@ -204,7 +208,7 @@ class FirestoreService {
         .map((snapshot) {
           List<Map<String, dynamic>> submissions = snapshot.docs
               .map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
+                final data = doc.data();
                 return {
                   'id': doc.id,
                   ...data,
@@ -444,7 +448,7 @@ class FirestoreService {
     try {
       final doc = await _firestore.collection('circulars').doc(circularId).get();
       if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
@@ -570,7 +574,7 @@ class FirestoreService {
     try {
       final doc = await _firestore.collection('events').doc(eventId).get();
       if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
@@ -772,7 +776,7 @@ class FirestoreService {
         throw Exception('Notification not found');
       }
       
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) {
         throw Exception('Notification data is null');
       }
@@ -856,7 +860,7 @@ class FirestoreService {
     try {
       final docRef = _firestore.collection('notifications').doc(invitationId);
       final doc = await docRef.get();
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       final responses = Map<String, dynamic>.from(data?['responses'] as Map? ?? {});
       
       responses[userId] = {
@@ -881,7 +885,7 @@ class FirestoreService {
       final snapshot = await _firestore.collection('colleges').get();
       return snapshot.docs
           .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return {'id': doc.id, ...data};
           })
           .toList();
@@ -895,7 +899,7 @@ class FirestoreService {
     try {
       final doc = await _firestore.collection('colleges').doc(collegeId).get();
       if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>?;
+      final data = doc.data();
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/image_full_screen_view.dart';
@@ -68,32 +69,43 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       );
     }
 
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    // Image Gallery Slider
-                    if (displayImages.isNotEmpty)
-                      _buildImageGallery(displayImages)
-                    else
-                      _buildEmptyImagePlaceholder(),
-                    
-                    // Event Details
-                    _buildDetailsSection(),
-                  ],
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      // Image Gallery Slider
+                      if (displayImages.isNotEmpty)
+                        _buildImageGallery(displayImages)
+                      else
+                        _buildEmptyImagePlaceholder(),
+                      
+                      // Event Details
+                      _buildDetailsSection(),
+                      const SizedBox(height: AppTheme.spacing2XL),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

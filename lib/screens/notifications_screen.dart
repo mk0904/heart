@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
@@ -250,43 +251,53 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
-            
-            // Tabs
-            _buildTabs(),
-            
-            // Content
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _filteredNotifications.isEmpty
-                      ? _buildEmptyState(_tabController.index == 0)
-                      : RefreshIndicator(
-                          onRefresh: () async {
-                            await _loadNotifications();
-                            await _loadUnreadCount();
-                          },
-                          child: ListView.builder(
-                            padding: const EdgeInsets.all(AppTheme.spacingLG),
-                            itemCount: _filteredNotifications.length,
-                            itemBuilder: (context, index) {
-                              final notification = _filteredNotifications[index];
-                              final isRead = _isRead(notification);
-                              final isLast = index == _filteredNotifications.length - 1;
-                              final isPendingTab = _tabController.index == 0;
-                              
-                              return _buildNotificationCard(notification, isRead, isLast, isPendingTab);
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
+              
+              // Tabs
+              _buildTabs(),
+              
+              // Content
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _filteredNotifications.isEmpty
+                        ? _buildEmptyState(_tabController.index == 0)
+                        : RefreshIndicator(
+                            onRefresh: () async {
+                              await _loadNotifications();
+                              await _loadUnreadCount();
                             },
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(AppTheme.spacingLG),
+                              itemCount: _filteredNotifications.length,
+                              itemBuilder: (context, index) {
+                                final notification = _filteredNotifications[index];
+                                final isRead = _isRead(notification);
+                                final isLast = index == _filteredNotifications.length - 1;
+                                final isPendingTab = _tabController.index == 0;
+                                
+                                return _buildNotificationCard(notification, isRead, isLast, isPendingTab);
+                              },
+                            ),
                           ),
-                        ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -298,11 +309,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
         horizontal: AppTheme.spacingLG,
         vertical: AppTheme.spacingBase,
       ),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
-        ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
       ),
       child: Row(
         children: [
@@ -332,13 +340,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
               child: Text(
                 '$_unreadCount',
                 style: const TextStyle(
-                  color: AppTheme.white,
+                  color: Colors.white,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-          const SizedBox(width: 8),
+          if (_unreadCount == 0) const SizedBox(width: 48), // Spacer for centering
         ],
       ),
     );
@@ -346,19 +354,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
 
   Widget _buildTabs() {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spacingLG,
-        vertical: AppTheme.spacingMD,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildTab('Pending', 0),
-          ),
-          const SizedBox(width: AppTheme.spacingSM),
-          Expanded(
-            child: _buildTab('Mark as Read', 1),
-          ),
+      color: Colors.white,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: AppTheme.primary,
+        unselectedLabelColor: AppTheme.textSecondary,
+        indicatorColor: AppTheme.primary,
+        indicatorWeight: 3,
+        tabs: const [
+          Tab(text: 'Pending'),
+          Tab(text: 'Mark as Read'),
         ],
       ),
     );
@@ -419,7 +424,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
         margin: EdgeInsets.only(bottom: isLast ? 0 : AppTheme.spacingMD),
         padding: const EdgeInsets.all(AppTheme.spacingLG),
         decoration: BoxDecoration(
-          color: AppTheme.white,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(AppTheme.radiusBase),
           border: Border.all(
             color: isRead ? AppTheme.borderLight : AppTheme.primary.withOpacity(0.3),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
@@ -218,13 +219,22 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: AppTheme.backgroundLight,
-        body: Column(
-          children: [
-            // Header
-            _buildHeader(),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              _buildHeader(),
             
             // Content
             Expanded(
@@ -270,8 +280,9 @@ class _ColleaguesScreenState extends State<ColleaguesScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _showUserStatusModal(Map<String, dynamic> user) {
     showModalBottomSheet(

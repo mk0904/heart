@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
-import 'attendance_history_screen.dart';
 import 'support_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'terms_of_service_screen.dart';
@@ -73,30 +73,40 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
-        backgroundColor: AppTheme.backgroundLight,
-        body: RefreshIndicator(
-          onRefresh: _loadUserProfile,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                _buildHeader(),
-                
-                // Profile Card
-                _buildProfileCard(),
-                
-                // Quick Actions
-                _buildQuickActions(context),
-                
-                // Sign Out Button
-                _buildSignOutButton(context),
-                
-                const SizedBox(height: 90),
-              ],
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _loadUserProfile,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  _buildHeader(),
+                  
+                  // Profile Card
+                  _buildProfileCard(),
+                  
+                  // Quick Actions
+                  _buildQuickActions(context),
+                  
+                  // Sign Out Button
+                  _buildSignOutButton(context),
+                  
+                  const SizedBox(height: 90),
+                ],
+              ),
             ),
           ),
         ),
@@ -105,32 +115,56 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Widget _buildHeader() {
-    return Padding(
+    return Container(
       padding: const EdgeInsets.fromLTRB(
         AppTheme.spacingLG,
         AppTheme.spacingXL,
         AppTheme.spacingLG,
         AppTheme.spacingBase,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Account',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.text,
-              letterSpacing: -0.5,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Account',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.text,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: AppTheme.spacingXS),
+              const Text(
+                'Manage your profile and settings',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppTheme.spacingXS),
-          const Text(
-            'Manage your profile and settings',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppTheme.textSecondary,
+          IconButton(
+            onPressed: () => _handleShareApp(context),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryLight,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.share,
+                color: AppTheme.primary,
+                size: 20,
+              ),
             ),
+            tooltip: 'Share App',
           ),
         ],
       ),
@@ -147,7 +181,7 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
         padding: const EdgeInsets.all(AppTheme.spacingBase),
         decoration: BoxDecoration(
-          color: AppTheme.white,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(AppTheme.radiusLG),
           border: Border.all(color: AppTheme.borderLight, width: 0.5),
           boxShadow: AppTheme.shadowSM,
@@ -200,7 +234,7 @@ class _AccountScreenState extends State<AccountScreen> {
       ),
       padding: const EdgeInsets.all(AppTheme.spacingBase),
       decoration: BoxDecoration(
-        color: AppTheme.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusLG),
         border: Border.all(color: AppTheme.borderLight, width: 0.5),
       ),
@@ -519,15 +553,22 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   void _handleShareApp(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
     try {
       await Share.share(
-        'Check out HEART Nagaland - The official app for government employees in Nagaland.\n\nDownload it from:\nAndroid: https://play.google.com/store/apps/details?id=com.heartnagaland\niOS: https://apps.apple.com/app/heart-nagaland',
+        'Check out HEART Nagaland - The official app for college staff in Nagaland.\n\nDownload it from:\nAndroid: https://play.google.com/store/apps/details?id=com.mk2004.heartnagaland\niOS: https://apps.apple.com/us/app/heart-nagaland/id6752921004',
         subject: 'Share HEART Nagaland',
+        sharePositionOrigin: box != null ? box.localToGlobal(Offset.zero) & box.size : null,
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sharing: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
     }
   }
 

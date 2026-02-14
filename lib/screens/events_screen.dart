@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
@@ -189,117 +190,127 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: AppTheme.backgroundLight,
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                // Header
-                _buildHeader(),
-                
-                // Content
-                Expanded(
-                  child: CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      // Search
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppTheme.spacingLG),
-                          child: _buildSearchBar(),
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // Header
+                  _buildHeader(),
+                  
+                  // Content
+                  Expanded(
+                    child: CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        // Search
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppTheme.spacingLG),
+                            child: _buildSearchBar(),
+                          ),
                         ),
-                      ),
-                      
-                      // Events List
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
-                        sliver: _loading
-                            ? SliverToBoxAdapter(
-                                child: _buildSkeleton(),
-                              )
-                            : _filteredEvents.isEmpty
-                                ? SliverToBoxAdapter(
-                                    child: _buildEmptyState(),
-                                  )
-                                : SliverList(
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, index) {
-                                        if (index == 0) {
-                                          return Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const Padding(
-                                                padding: EdgeInsets.only(bottom: AppTheme.spacingMD),
-                                                child: Text(
-                                                  'Past Events',
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: AppTheme.text,
+                        
+                        // Events List
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
+                          sliver: _loading
+                              ? SliverToBoxAdapter(
+                                  child: _buildSkeleton(),
+                                )
+                              : _filteredEvents.isEmpty
+                                  ? SliverToBoxAdapter(
+                                      child: _buildEmptyState(),
+                                    )
+                                  : SliverList(
+                                      delegate: SliverChildBuilderDelegate(
+                                        (context, index) {
+                                          if (index == 0) {
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Padding(
+                                                  padding: EdgeInsets.only(bottom: AppTheme.spacingMD),
+                                                  child: Text(
+                                                    'Past Events',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: AppTheme.text,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                              _buildEventCard(_filteredEvents[index]),
-                                            ],
-                                          );
-                                        }
-                                        return _buildEventCard(_filteredEvents[index]);
-                                      },
-                                      childCount: _filteredEvents.length,
+                                                _buildEventCard(_filteredEvents[index]),
+                                              ],
+                                            );
+                                          }
+                                          return _buildEventCard(_filteredEvents[index]);
+                                        },
+                                        childCount: _filteredEvents.length,
+                                      ),
                                     ),
-                                  ),
-                      ),
-                      
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 90),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            
-            // Floating Add Button - Bottom Right
-            Positioned(
-              bottom: AppTheme.spacingLG,
-              right: AppTheme.spacingLG,
-              child: FloatingActionButton(
-                onPressed: () async {
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const EventFormScreen(),
+                        ),
+                        
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 90),
+                        ),
+                      ],
                     ),
-                  );
-                  if (result == true) {
-                    _loadEvents();
-                  }
-                },
-                backgroundColor: AppTheme.primary,
-                child: const Icon(Icons.add, color: AppTheme.white),
+                  ),
+                ],
               ),
-            ),
-            
-            // Floating Filter Button - Bottom Left
-            Positioned(
-              bottom: AppTheme.spacingLG,
-              left: AppTheme.spacingLG,
-              child: FloatingActionButton(
-                onPressed: () {
-                  setState(() {
-                    _showFilters = true;
-                  });
-                },
-                backgroundColor: AppTheme.textSecondary,
-                child: const Icon(Icons.filter_list, color: AppTheme.white),
+              
+              // Floating Add Button - Bottom Right
+              Positioned(
+                bottom: AppTheme.spacingLG,
+                right: AppTheme.spacingLG,
+                child: FloatingActionButton(
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const EventFormScreen(),
+                      ),
+                    );
+                    if (result == true) {
+                      _loadEvents();
+                    }
+                  },
+                  backgroundColor: AppTheme.primary,
+                  child: const Icon(Icons.add, color: AppTheme.white),
+                ),
               ),
-            ),
-            
-            // Filter Modal
-            if (_showFilters) _buildFilterModal(),
-          ],
+              
+              // Floating Filter Button - Bottom Left
+              Positioned(
+                bottom: AppTheme.spacingLG,
+                left: AppTheme.spacingLG,
+                child: FloatingActionButton(
+                  onPressed: () {
+                    setState(() {
+                      _showFilters = true;
+                    });
+                  },
+                  backgroundColor: AppTheme.textSecondary,
+                  child: const Icon(Icons.filter_list, color: AppTheme.white),
+                ),
+              ),
+              
+              // Filter Modal
+              if (_showFilters) _buildFilterModal(),
+            ],
+          ),
         ),
       ),
     );
@@ -382,7 +393,7 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
                               ),
                               const SizedBox(height: AppTheme.spacingSM),
                               DropdownButtonFormField<String>(
-                                value: _selectedCollege,
+                                initialValue: _selectedCollege,
                                 decoration: InputDecoration(
                                   filled: true,
                                   fillColor: AppTheme.backgroundDark,
@@ -926,7 +937,7 @@ class _EventImageSliderState extends State<_EventImageSlider> {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: widget.onTap,
-      child: Container(
+      child: SizedBox(
         height: 160,
         child: Stack(
           children: [
