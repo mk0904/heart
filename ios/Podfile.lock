@@ -1507,6 +1507,8 @@ DEPENDENCIES:
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
+  - TensorFlowLiteC (= 2.12.0)
+  - TensorFlowLiteSwift (= 2.12.0)
   - tflite_flutter (from `.symlinks/plugins/tflite_flutter/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
 
@@ -1632,6 +1634,6 @@ SPEC CHECKSUMS:
   tflite_flutter: 9433d086a3060431bbc9f3c7c20d017db0e72d08
   url_launcher_ios: bb13df5870e8c4234ca12609d04010a21be43dfa
 
-PODFILE CHECKSUM: df3eab9fa6521e2d53def51cbbe0d0f5fe2d56f6
+PODFILE CHECKSUM: 6a72a396e81ebaa6d07f5fa215920f0aaa719fc1
 
 COCOAPODS: 1.16.2

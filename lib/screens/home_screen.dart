@@ -730,28 +730,45 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
-      _FeatureItem(
-        title: 'Edit\nProfile',
-        icon: Icons.edit,
-        color: const Color(0xFF5A2A27),
-        onTap: () async {
-          // Navigate directly to Edit Profile Screen
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const EditProfileScreen()),
-          );
-          // Refresh user profile if profile was updated
-          if (result == true && mounted) {
-            await _loadUserProfile();
-          }
-        },
-      ),
     ];
     
-    // Check if user should see "Submit Data"
+    if (!widget.isActive) {
+      features.add(
+        _FeatureItem(
+          title: 'Edit\nProfile',
+          icon: Icons.edit,
+          color: const Color(0xFF5A2A27),
+          onTap: () async {
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const EditProfileScreen()),
+            );
+            if (result == true && mounted) {
+              await _loadUserProfile();
+            }
+          },
+        ),
+      );
+    }
+    
+    // Check if user should see data tile
     if (_userRole != null) {
       final role = _userRole!.toLowerCase().replaceAll('-', ' ');
-      if (role == 'principal' || role == 'ministerial staff') {
+      if (role == 'principal') {
+        features.add(
+          _FeatureItem(
+            title: 'Review\nSubmissions',
+            icon: Icons.fact_check,
+            color: AppTheme.primary,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SubmitDataScreen()),
+              );
+            },
+          ),
+        );
+      } else if (role == 'ministerial staff') {
         features.add(
           _FeatureItem(
             title: 'Submit\nData',

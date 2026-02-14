@@ -653,11 +653,11 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
             icon: const Icon(Icons.arrow_back, color: AppTheme.text, size: 22),
             onPressed: () => Navigator.pop(context),
           ),
-          const Expanded(
+          Expanded(
             child: Center(
               child: Text(
-                'Submit Data',
-                style: TextStyle(
+                _isPrincipal ? 'Review Submissions' : 'Submit Data',
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: AppTheme.text,

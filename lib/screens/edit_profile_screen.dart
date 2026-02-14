@@ -47,6 +47,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   File? _selectedImage;
   bool _uploadingPhoto = false;
   bool _isProfileIncomplete = false;
+  bool _isActive = false;
 
   @override
   void initState() {
@@ -97,6 +98,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _dateOfConfirmation = user.dateOfConfirmation;
       _dateOfRetirement = user.dateOfRetirement;
       _photoUrl = user.photoUrl;
+      _isActive = user.active ?? false;
       
       // Check if profile is incomplete
       _isProfileIncomplete = _checkIfProfileIncomplete(user);
@@ -352,13 +354,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const SizedBox(height: AppTheme.spacingMD),
-                              const Text(
-                                'Update your profile information',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: AppTheme.textSecondary,
+                              if (_isActive)
+                                Container(
+                                  padding: const EdgeInsets.all(AppTheme.spacingLG),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.backgroundDark,
+                                    borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                                    border: Border.all(color: AppTheme.borderLight, width: 1),
+                                  ),
+                                  child: Row(
+                                    children: const [
+                                      Icon(Icons.lock_outline, size: 18, color: AppTheme.textSecondary),
+                                      SizedBox(width: AppTheme.spacingMD),
+                                      Expanded(
+                                        child: Text(
+                                          'Profile is active and locked. Editing is disabled.',
+                                          style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                const Text(
+                                  'Update your profile information',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.textSecondary,
+                                  ),
                                 ),
-                              ),
                               const SizedBox(height: AppTheme.spacing2XL),
                               
                               // Profile Picture Section
@@ -373,6 +397,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _nameController,
                                 label: 'Full Name',
                                 icon: Icons.person_outline,
+                                enabled: !_isActive,
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Name is required';
@@ -388,6 +413,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _phoneController,
                                 label: 'Phone Number',
                                 icon: Icons.phone_outlined,
+                                enabled: !_isActive,
                                 keyboardType: TextInputType.phone,
                                 validator: (value) {
                                   // Required in complete profile mode or if profile is incomplete
@@ -423,6 +449,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     _employmentType = value;
                                   });
                                 },
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -432,6 +459,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _payBandController,
                                 label: 'Pay Band / Grade Pay',
                                 icon: Icons.account_balance_wallet_outlined,
+                                enabled: !_isActive,
                                 hintText: 'e.g., PB-1, PB-2',
                                 validator: (value) {
                                   // Required in complete profile mode
@@ -450,6 +478,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfBirth),
                                 icon: Icons.calendar_today_outlined,
                                 onTap: () => _selectDate('dob'),
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -460,6 +489,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfAppointment),
                                 icon: Icons.event_outlined,
                                 onTap: () => _selectDate('appointment'),
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -470,6 +500,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfConfirmation),
                                 icon: Icons.verified_outlined,
                                 onTap: () => _selectDate('confirmation'),
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -480,6 +511,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfRetirement),
                                 icon: Icons.event_busy_outlined,
                                 onTap: () => _selectDate('retirement'),
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -493,6 +525,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     _govtQuarter = value;
                                   });
                                 },
+                                enabled: !_isActive,
                               ),
                               
                               const SizedBox(height: AppTheme.spacing2XL),
@@ -501,7 +534,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
-                                  onPressed: (_saving || _uploadingPhoto) ? null : _saveProfile,
+                                  onPressed: (_saving || _uploadingPhoto || _isActive) ? null : _saveProfile,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppTheme.primary,
                                     padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
@@ -586,7 +619,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Column(
       children: [
         GestureDetector(
-          onTap: _showImageSourceDialog,
+          onTap: _isActive ? null : _showImageSourceDialog,
           child: Stack(
             children: [
               Container(
@@ -634,7 +667,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: AppTheme.primary,
+                    color: _isActive ? AppTheme.textLight : AppTheme.primary,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: Colors.white,
@@ -652,13 +685,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
         const SizedBox(height: AppTheme.spacingSM),
-        Text(
-          'Change profile photo',
-          style: TextStyle(
-            fontSize: 12,
-            color: AppTheme.textSecondary,
+        if (!_isActive)
+          Text(
+            'Change profile photo',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textSecondary,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -690,6 +724,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required String label,
     required IconData icon,
     bool obscureText = false,
+    bool enabled = true,
     TextInputType? keyboardType,
     String? hintText,
     Widget? suffixIcon,
@@ -698,6 +733,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return TextFormField(
       controller: controller,
       obscureText: obscureText,
+      enabled: enabled,
       keyboardType: keyboardType,
       style: const TextStyle(
         fontSize: 15,
@@ -753,9 +789,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required IconData icon,
     required List<DropdownMenuItem<String>> items,
     required void Function(String?) onChanged,
+    bool enabled = true,
   }) {
     return DropdownButtonFormField<String>(
       initialValue: value,
+      onChanged: enabled ? onChanged : null,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(
@@ -783,7 +821,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
       ),
       items: items,
-      onChanged: onChanged,
       style: const TextStyle(
         fontSize: 15,
         color: AppTheme.text,
@@ -803,10 +840,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required String value,
     required IconData icon,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
     final hasValue = value != 'Select date';
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: Container(
         padding: const EdgeInsets.symmetric(
           horizontal: AppTheme.spacingLG,
@@ -858,6 +896,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required String label,
     required bool? value,
     required Function(bool?) onChanged,
+    bool enabled = true,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -876,7 +915,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             Radio<bool>(
               value: true,
               groupValue: value,
-              onChanged: (val) => onChanged(val),
+              onChanged: enabled ? (val) => onChanged(val) : null,
               activeColor: AppTheme.primary,
             ),
             const SizedBox(width: AppTheme.spacingXS),
@@ -891,7 +930,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             Radio<bool>(
               value: false,
               groupValue: value,
-              onChanged: (val) => onChanged(val),
+              onChanged: enabled ? (val) => onChanged(val) : null,
               activeColor: AppTheme.primary,
             ),
             const SizedBox(width: AppTheme.spacingXS),

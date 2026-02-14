@@ -31,6 +31,10 @@ target 'Runner' do
   use_frameworks! :linkage => :static
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Ensure TensorFlow Lite C and Swift APIs are available for tflite_flutter
+  pod 'TensorFlowLiteC', '2.12.0'
+  pod 'TensorFlowLiteSwift', '2.12.0'
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -60,6 +64,19 @@ post_install do |installer|
         ## dart: PermissionGroup.location
         'PERMISSION_LOCATION=1',
       ]
+    end
+  end
+
+  # Force link TensorFlowLiteC so symbols like TfLiteModelCreate are retained in Release
+  installer.aggregate_targets.each do |aggregate_target|
+    if aggregate_target.name == 'Pods-Runner'
+      aggregate_target.xcconfigs.each do |config_name, xcconfig|
+        ldflags = xcconfig.attributes['OTHER_LDFLAGS'] || '$(inherited)'
+        tflite_force = ' -force_load $(PODS_CONFIGURATION_BUILD_DIR)/TensorFlowLiteC/TensorFlowLiteC.framework/TensorFlowLiteC'
+        unless ldflags.include?('-force_load') || ldflags.include?('TensorFlowLiteC.framework/TensorFlowLiteC')
+          xcconfig.attributes['OTHER_LDFLAGS'] = ldflags + tflite_force
+        end
+      end
     end
   end
 end
