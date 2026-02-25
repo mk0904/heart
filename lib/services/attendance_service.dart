@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/person.dart';
 import '../models/attendance_record.dart';
 import '../models/daily_attendance.dart';
-import 'face_recognition_service.dart';
 import 'firebase_auth_service.dart';
 import 'firestore_service.dart';
 import 'location_service.dart';
@@ -15,7 +15,6 @@ class AttendanceService {
   static AttendanceService? _instance;
   late Box<Person> _personsBox;
   late Box<AttendanceRecord> _attendanceBox;
-  final FaceRecognitionService _faceRecognitionService = FaceRecognitionService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final FirestoreService _firestoreService = FirestoreService();
@@ -28,6 +27,16 @@ class AttendanceService {
   // Lower threshold = stricter matching
   // Typical values: 0.6-1.2 (1.0 is a good starting point)
   static const double recognitionThreshold = 1.1;
+
+  /// Euclidean distance between two embeddings (lower = more similar)
+  static double _euclideanDistance(List<double> emb1, List<double> emb2) {
+    double sum = 0.0;
+    for (int i = 0; i < emb1.length; i++) {
+      final diff = emb1[i] - emb2[i];
+      sum += diff * diff;
+    }
+    return math.sqrt(sum);
+  }
 
   // Private constructor for singleton
   AttendanceService._internal();
@@ -170,7 +179,7 @@ class AttendanceService {
     double minDistance = double.infinity;
 
     for (var person in _personsBox.values) {
-      final distance = _faceRecognitionService.euclideanDistance(
+      final distance = _euclideanDistance(
         embedding,
         person.faceEmbedding,
       );
@@ -199,7 +208,7 @@ class AttendanceService {
                   .toList();
               
               // Compare with Firebase embedding
-              final distance = _faceRecognitionService.euclideanDistance(
+              final distance = _euclideanDistance(
                 embedding,
                 firebaseEmbedding,
               );
