@@ -8,6 +8,7 @@ import 'navigation/main_tab_navigator.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/complete_profile_screen.dart';
 import 'theme/app_theme.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,7 +59,9 @@ class _MyAppState extends State<MyApp> {
     final startTime = DateTime.now();
     try {
       // 1. Initialize Firebase
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
 
       // 2. Initialize Notification Service (non-blocking)
       NotificationService().initialize().catchError((e) => debugPrint('Notification init warning: $e'));

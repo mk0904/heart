@@ -36,7 +36,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   hive_flutter: ^1.1.0
   camera: ^0.10.0+2
-  tflite_flutter: ^0.11.0
   google_mlkit_face_detection: ^0.13.1
   image: ^4.1.1
   lottie: ^3.3.2
@@ -48,6 +47,7 @@ dependencies:
   url_launcher: ^6.3.1
   image_picker: ^1.1.2
   geolocator: ^13.0.1
+  webview_flutter: ^4.9.0
   permission_handler: ^11.3.1
   connectivity_plus: ^6.1.0
   firebase_messaging: ^15.1.3

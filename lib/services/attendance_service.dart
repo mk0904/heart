@@ -23,7 +23,6 @@ class AttendanceService {
   final ConnectivityService _connectivityService = ConnectivityService();
   bool _isInitialized = false;
   bool _isSyncing = false;
-  Timer? _autoCheckoutTimer;
 
   // Threshold for face recognition (Euclidean distance)
   // Lower threshold = stricter matching
@@ -58,20 +57,10 @@ class AttendanceService {
     _personsBox = await Hive.openBox<Person>('persons');
     _attendanceBox = await Hive.openBox<AttendanceRecord>('attendance');
 
-    await _faceRecognitionService.loadModel();
     _isInitialized = true;
     
     // Sync current user's face embedding from Firebase to local storage (non-blocking)
     syncCurrentUserEmbedding();
-    
-    // Check for auto-checkout on initialization (non-blocking)
-    checkAutoCheckout();
-    
-    // Set up periodic auto-checkout (runs every hour)
-    _autoCheckoutTimer?.cancel();
-    _autoCheckoutTimer = Timer.periodic(const Duration(hours: 1), (timer) {
-      checkAutoCheckout();
-    });
   }
   
   /// Sync current user's face embedding from Firebase to local storage
@@ -458,102 +447,7 @@ class AttendanceService {
     }
   }
 
-  /// Auto-checkout the current user if they haven't checked out by midnight yesterday
-  Future<void> checkAutoCheckout() async {
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user == null) return;
 
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      
-      // Get yesterday's date
-      final yesterday = todayStart.subtract(const Duration(days: 1));
-      final yesterdayStr = yesterday.toIso8601String().split('T')[0];
-      
-      // Find current user's attendance record for yesterday
-      final userRecords = await _firestore
-          .collection('attendance')
-          .where('userId', isEqualTo: user.uid)
-          .get();
-      
-      // Filter yesterday's records in memory to avoid index requirements for date field
-      final yesterdayRecords = userRecords.docs.where((doc) {
-        final data = doc.data();
-        final dateStr = data['date'] as String?;
-        if (dateStr == yesterdayStr) return true;
-        
-        // Also check timestamp field for backward compatibility
-        final timestamp = data['timestamp'] as String?;
-        if (timestamp != null) {
-          try {
-            final recordTime = DateTime.parse(timestamp);
-            final recordDate = DateTime(recordTime.year, recordTime.month, recordTime.day);
-            return recordDate.year == yesterday.year &&
-                   recordDate.month == yesterday.month &&
-                   recordDate.day == yesterday.day;
-          } catch (e) {
-            return false;
-          }
-        }
-        return false;
-      }).toList();
-      
-      for (var doc in yesterdayRecords) {
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data == null) continue;
-        
-        // Get events array
-        final events = List<Map<String, dynamic>>.from(
-          (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
-        );
-        
-        // If events is empty but we have check-in/out fields, reconstruct once
-        if (events.isEmpty) {
-          if (data['checkInTime'] != null) {
-            events.add({
-              'type': 'check_in',
-              'time': data['checkInTime'] as String,
-              'confidence': (data['checkInConfidence'] as num?)?.toDouble() ?? 0.0,
-            });
-          }
-          if (data['checkoutTime'] != null) {
-            events.add({
-              'type': 'check_out',
-              'time': data['checkoutTime'] as String,
-              'confidence': (data['checkoutConfidence'] as num?)?.toDouble() ?? 0.0,
-            });
-          }
-        }
-        
-        // Sort to be sure
-        if (events.isNotEmpty) {
-          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-        }
-        
-        // If last event is check_in, auto-checkout at 11:59 PM
-        if (events.isNotEmpty && events.last['type'] == 'check_in') {
-          final midnight = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
-          events.add({
-            'type': 'check_out',
-            'time': midnight.toIso8601String(),
-            'confidence': 1.0,
-          });
-          
-          await doc.reference.update({
-            'events': events,
-            'checkoutTime': midnight.toIso8601String(),
-            'checkoutConfidence': 1.0,
-            'autoCheckedOut': true,
-            'type': 'check_out',
-            'updatedAt': DateTime.now().toIso8601String(),
-          });
-        }
-      }
-    } catch (e) {
-      // print('Error in auto-checkout: $e');
-    }
-  }
 
   /// Get today's attendance record for a user (if exists)
   Future<DocumentSnapshot?> _getTodayRecord(String userId) async {
@@ -1001,14 +895,11 @@ class AttendanceService {
     });
   }
 
-  /// Get attendance history from Firebase and local storage
+  /// Get attendance history from Firebase strictly
   Future<List<AttendanceRecord>> getAttendanceHistory() async {
     final user = await _authService.getCurrentUser();
     if (user == null) {
-      // Fallback to local only
-      if (!_isInitialized) return [];
-      return _attendanceBox.values.toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return [];
     }
 
     final List<AttendanceRecord> records = [];
@@ -1066,26 +957,7 @@ class AttendanceService {
       // print('Error fetching attendance from Firebase: $e');
     }
 
-    // Merge with local records (avoid duplicates)
-    if (_isInitialized) {
-      final localRecords = _attendanceBox.values
-          .where((r) => r.employeeId == user.uid)
-          .toList();
-      
-      for (var localRecord in localRecords) {
-        // Check if not already in Firebase records (match by employeeId, type, and timestamp within 1 second)
-        final exists = records.any((r) {
-          final timeDiff = (r.timestamp.difference(localRecord.timestamp)).abs();
-          return r.employeeId == localRecord.employeeId &&
-                 r.type == localRecord.type &&
-                 timeDiff.inSeconds <= 1;
-        });
-        if (!exists) {
-          records.add(localRecord);
-        }
-      }
-    }
-
+    // Removed local merge to ensure we only show synced Firebase records
     records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     
     // Trigger sync in background (don't wait for it)
@@ -1094,14 +966,10 @@ class AttendanceService {
     return records;
   }
 
-  /// Get daily attendance history (grouped by day)
   Future<List<DailyAttendance>> getDailyAttendanceHistory() async {
     final user = await _authService.getCurrentUser();
     if (user == null) {
-      if (!_isInitialized) return [];
-      // Group local records for offline caching support
-      final localRecords = _attendanceBox.values.toList();
-      return _groupRecordsByDay(localRecords);
+      return [];
     }
 
     try {

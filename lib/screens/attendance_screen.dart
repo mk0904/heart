@@ -4,8 +4,9 @@ import '../theme/app_theme.dart';
 import '../services/attendance_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../models/attendance_record.dart';
-import 'register_screen.dart';
-import 'mark_attendance_screen.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'attendance_webview_modal.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -90,16 +91,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             _isLoading = false;
           });
         }
-        
-        // Check for auto-checkout in background (non-blocking)
-        _attendanceService.checkAutoCheckout().then((_) async {
-          final updatedCheckedIn = await _attendanceService.isCurrentlyCheckedIn();
-          if (mounted && updatedCheckedIn != _isCheckedIn) {
-            setState(() {
-              _isCheckedIn = updatedCheckedIn;
-            });
-          }
-        });
       } else {
         setState(() {
           _isEnrolled = false;
@@ -246,29 +237,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           controller: _scrollController,
                           physics: const AlwaysScrollableScrollPhysics(),
                           slivers: [
-                          // Cards Section
-                          SliverPadding(
-                            padding: const EdgeInsets.all(AppTheme.spacingLG),
-                            sliver: SliverList(
-                              delegate: SliverChildListDelegate([
-                                // Status Card
-                                _buildStatusCard(),
-                                const SizedBox(height: AppTheme.spacingMD),
-                                
-                                // Action Buttons Card
-                                _buildActionsCard(),
-                                const SizedBox(height: AppTheme.spacingXL),
-                                
-                                // History Section
-                                _buildHistorySection(),
-                              ]),
+                            // Cards Section
+                            SliverPadding(
+                              padding: const EdgeInsets.all(AppTheme.spacingLG),
+                              sliver: SliverList(
+                                delegate: SliverChildListDelegate([
+                                  // Status Card
+                                  _buildStatusCard(),
+                                  const SizedBox(height: AppTheme.spacingMD),
+                                  
+                                  // Action Buttons Card
+                                  _buildActionsCard(),
+                                  const SizedBox(height: AppTheme.spacingXL),
+                                  
+                                  // History Section
+                                  _buildHistorySection(),
+                                ]),
+                              ),
                             ),
-                          ),
-                          
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: 90),
-                          ),
-                        ],
+                            
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: 90),
+                            ),
+                          ],
                         ),
                       ),
               ),
@@ -277,6 +268,138 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ),
       ),
     );
+  }
+
+  Future<Position?> _getLocation() async {
+    try {
+      final status = await Permission.locationWhenInUse.status;
+      if (!status.isGranted) {
+        final requestStatus = await Permission.locationWhenInUse.request();
+        if (!requestStatus.isGranted) return null;
+      }
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+    } catch (e) {
+      debugPrint('Error getting location: $e');
+      return null;
+    }
+  }
+
+  Future<void> _handleRegisterFace() async {
+    final position = await _getLocation();
+    
+    final result = await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, _, __) => AttendanceWebViewModal(
+          flowType: WebFlowType.register,
+          position: position,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      _checkEnrollmentStatus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Face registered successfully!'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleCheckIn() async {
+    final position = await _getLocation();
+    
+    final result = await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, _, __) => AttendanceWebViewModal(
+          flowType: WebFlowType.checkIn,
+          position: position,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      // Optimistically flip the button immediately
+      if (mounted) {
+        setState(() {
+          _isCheckedIn = true;
+        });
+      }
+      _loadHistoryRecords();
+      _checkEligibility();
+      // Confirm from Firebase after a short delay (in case of race condition)
+      Future.delayed(const Duration(seconds: 2), () async {
+        final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+        if (mounted && confirmed != _isCheckedIn) {
+          setState(() => _isCheckedIn = confirmed);
+        }
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Checked in successfully!'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleCheckOut() async {
+    final position = await _getLocation();
+    
+    final result = await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, _, __) => AttendanceWebViewModal(
+          flowType: WebFlowType.checkOut,
+          position: position,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      // Optimistically flip the button immediately
+      if (mounted) {
+        setState(() {
+          _isCheckedIn = false;
+        });
+      }
+      _loadHistoryRecords();
+      _checkEligibility();
+      // Confirm from Firebase after a short delay (in case of race condition)
+      Future.delayed(const Duration(seconds: 2), () async {
+        final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+        if (mounted && confirmed != _isCheckedIn) {
+          setState(() => _isCheckedIn = confirmed);
+        }
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Checked out successfully!'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildHeader() {
@@ -639,15 +762,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const RegisterScreen()),
-          );
-          if (result == true) {
-            _checkEnrollmentStatus();
-          }
-        },
+        onPressed: _handleRegisterFace,
         icon: const Icon(Icons.camera_alt, color: AppTheme.white, size: 20),
         label: const Text(
           'Register Face',
@@ -687,21 +802,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: isEnabled ? () async {
-              // Navigate immediately to camera screen
-              // Background validation will happen there as a safety check
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => MarkAttendanceScreen(
-                    isCheckIn: !_isCheckedIn,
-                  ),
-                ),
-              );
-              // Reload status and history after marking attendance
-              await _checkEnrollmentStatus();
-              await _loadHistoryRecords();
-              // Re-check eligibility when coming back
-              _checkEligibility();
+              if (_isCheckedIn) {
+                await _handleCheckOut();
+              } else {
+                await _handleCheckIn();
+              }
             } : null,
             icon: _isCheckingEligibility 
                 ? const SizedBox(
@@ -737,12 +842,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               children: [
                 const Icon(Icons.error_outline, size: 14, color: AppTheme.error),
                 const SizedBox(width: 4),
-                Text(
-                  _eligibilityMessage!,
-                  style: const TextStyle(
-                    color: AppTheme.error,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Text(
+                    _eligibilityMessage!,
+                    style: const TextStyle(
+                      color: AppTheme.error,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
@@ -756,15 +864,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const RegisterScreen()),
-          );
-          if (result == true) {
-            _checkEnrollmentStatus();
-          }
-        },
+        onPressed: _handleRegisterFace,
         icon: const Icon(Icons.refresh, size: 18, color: AppTheme.textSecondary),
         label: const Text(
           'Re-register Face',
