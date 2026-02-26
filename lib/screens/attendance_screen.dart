@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/attendance_service.dart';
+import '../services/attendance_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../models/attendance_record.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'attendance_webview_modal.dart';
@@ -24,7 +25,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _isLoading = true;
   bool _showSearchIcon = false;
   String _historyFilter = 'all'; // 'all', 'check-in', 'check-out'
-  List<AttendanceRecord> _historyRecords = [];
+  List<Map<String, dynamic>> _historyRecords = [];
   bool _isLoadingHistory = false;
   
   // Eligibility State
@@ -65,28 +66,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     });
     
     try {
-      // Check Firebase user document for face registration
       final user = await _authService.getCurrentUser();
       if (user != null) {
-        // First ensure we have the latest face embedding from Firebase
-        // This handles the case where user registered on another device
-        await _attendanceService.syncCurrentUserEmbedding();
-
         // Run parallel operations for faster loading
         final results = await Future.wait([
-          // Check local registration (fast - Hive query)
-          Future.value(_attendanceService.getAllPersons().any((p) => p.employeeId == user.uid)),
+          // Check Firestore directly for face registration
+          FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
           // Check current check-in status
           _attendanceService.isCurrentlyCheckedIn(),
         ]);
         
-        final hasLocalRegistration = results[0];
-        final isCheckedIn = results[1];
+        final userDoc = results[0] as DocumentSnapshot;
+        final isCheckedIn = results[1] as bool;
         
-        // Update UI immediately with initial state
+        bool hasRegistration = false;
+        if (userDoc.exists) {
+          final data = userDoc.data() as Map<String, dynamic>?;
+          hasRegistration = data?['faceRegistered'] ?? false;
+        }
+        
         if (mounted) {
           setState(() {
-            _isEnrolled = hasLocalRegistration;
+            _isEnrolled = hasRegistration;
             _isCheckedIn = isCheckedIn;
             _isLoading = false;
           });
@@ -123,9 +124,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           : _historyFilter == 'check-out' 
               ? 'check_out' 
               : _historyFilter;
+              
       final filtered = _historyFilter == 'all'
           ? allRecords
-          : allRecords.where((r) => r.type == filterValue).toList();
+          : allRecords.where((r) => r['type'] == filterValue).toList();
+          
       if (mounted) {
         setState(() {
           _historyRecords = filtered;
@@ -641,6 +644,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildEmptyHistoryState() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(AppTheme.spacing2XL),
       decoration: BoxDecoration(
         color: AppTheme.white,
@@ -680,8 +684,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Widget _buildHistoryRecordCard(AttendanceRecord record) {
-    final isCheckIn = record.type == 'check_in';
+  Widget _buildHistoryRecordCard(Map<String, dynamic> record) {
+    final isCheckIn = record['type'] == 'check_in';
+    final timestamp = DateTime.parse(record['time'] as String);
     
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacingMD),
@@ -719,7 +724,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _formatDate(record.timestamp),
+                  _formatDate(timestamp),
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -728,7 +733,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _formatTime(record.timestamp),
+                  _formatTime(timestamp),
                   style: const TextStyle(
                     fontSize: 14,
                     color: AppTheme.textSecondary,

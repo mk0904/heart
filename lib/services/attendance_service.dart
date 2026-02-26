@@ -1,42 +1,16 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import '../models/person.dart';
-import '../models/attendance_record.dart';
-import '../models/daily_attendance.dart';
 import 'firebase_auth_service.dart';
 import 'firestore_service.dart';
 import 'location_service.dart';
-import 'connectivity_service.dart';
 
 class AttendanceService {
   static AttendanceService? _instance;
-  late Box<Person> _personsBox;
-  late Box<AttendanceRecord> _attendanceBox;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final FirestoreService _firestoreService = FirestoreService();
   final LocationService _locationService = LocationService();
-  final ConnectivityService _connectivityService = ConnectivityService();
   bool _isInitialized = false;
-  bool _isSyncing = false;
-
-  // Threshold for face recognition (Euclidean distance)
-  // Lower threshold = stricter matching
-  // Typical values: 0.6-1.2 (1.0 is a good starting point)
-  static const double recognitionThreshold = 1.1;
-
-  /// Euclidean distance between two embeddings (lower = more similar)
-  static double _euclideanDistance(List<double> emb1, List<double> emb2) {
-    double sum = 0.0;
-    for (int i = 0; i < emb1.length; i++) {
-      final diff = emb1[i] - emb2[i];
-      sum += diff * diff;
-    }
-    return math.sqrt(sum);
-  }
 
   // Private constructor for singleton
   AttendanceService._internal();
@@ -48,208 +22,18 @@ class AttendanceService {
   }
 
   Future<void> init() async {
-    if (_isInitialized) {
-      return; // Already initialized
-    }
-    
-    // Initialize Hive (safe to call multiple times)
-    await Hive.initFlutter();
-
-    // Register adapters (after running build_runner)
-    if (!Hive.isAdapterRegistered(0)) {
-      Hive.registerAdapter(PersonAdapter());
-    }
-    if (!Hive.isAdapterRegistered(1)) {
-      Hive.registerAdapter(AttendanceRecordAdapter());
-    }
-
-    _personsBox = await Hive.openBox<Person>('persons');
-    _attendanceBox = await Hive.openBox<AttendanceRecord>('attendance');
-
+    if (_isInitialized) return;
     _isInitialized = true;
-    
-    // Sync current user's face embedding from Firebase to local storage (non-blocking)
-    syncCurrentUserEmbedding();
-  }
-  
-  /// Sync current user's face embedding from Firebase to local storage
-  Future<void> syncCurrentUserEmbedding() async {
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user == null) return;
-      
-      // Check if already exists in local storage
-      final existingPerson = _personsBox.get(user.uid);
-      if (existingPerson != null) {
-        // Already synced, skip
-        return;
-      }
-      
-      // Fetch from Firebase
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final data = userDoc.data();
-        final faceEmbedding = data?['faceEmbedding'];
-        final faceRegistered = data?['faceRegistered'] ?? false;
-        
-        if (faceRegistered && faceEmbedding != null && faceEmbedding is List) {
-          // Convert to List<double>
-          final firebaseEmbedding = faceEmbedding
-              .map((e) => (e as num).toDouble())
-              .toList();
-          
-          // Store in local Hive storage
-          final person = Person(
-            id: user.uid,
-            name: user.name ?? 'User',
-            employeeId: user.uid,
-            faceEmbedding: firebaseEmbedding,
-            registeredAt: DateTime.now(),
-          );
-          
-          await _personsBox.put(user.uid, person);
-        }
-      }
-    } catch (e) {
-      // Error is non-critical, continue silently
-    }
   }
 
   // Getter to check if service is initialized
   bool get isInitialized => _isInitialized;
-
-  Future<void> registerPerson({
-    required String name,
-    required String employeeId,
-    required List<double> faceEmbedding,
-  }) async {
-    if (!_isInitialized) {
-      throw Exception('AttendanceService not initialized. Call init() first.');
-    }
-    final person = Person(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: name,
-      employeeId: employeeId,
-      faceEmbedding: faceEmbedding,
-      registeredAt: DateTime.now(),
-    );
-
-    await _personsBox.put(person.id, person);
-  }
-
-  /// Register person with Firebase - stores face embedding in user document
-  Future<void> registerPersonWithFirebase({
-    required String name,
-    required String employeeId,
-    required List<double> faceEmbedding,
-  }) async {
-    // Get current user
-    final user = await _authService.getCurrentUser();
-    if (user == null) {
-      throw Exception('User not authenticated');
-    }
-
-    // Store in Firebase user document
-    await _firestore.collection('users').doc(user.uid).update({
-      'faceEmbedding': faceEmbedding,
-      'faceRegisteredAt': DateTime.now().toIso8601String(),
-      'faceRegistered': true,
-    });
-
-    // Also store locally in Hive for offline recognition
-    if (_isInitialized) {
-      final person = Person(
-        id: user.uid,
-        name: name,
-        employeeId: employeeId,
-        faceEmbedding: faceEmbedding,
-        registeredAt: DateTime.now(),
-      );
-      await _personsBox.put(person.id, person);
-    }
-  }
-
-  Future<Person?> recognizePerson(List<double> embedding) async {
-    if (!_isInitialized) {
-      throw Exception('AttendanceService not initialized. Call init() first.');
-    }
-    
-    // Step 1: First check local storage (fast, offline)
-    Person? bestMatch;
-    double minDistance = double.infinity;
-
-    for (var person in _personsBox.values) {
-      final distance = _euclideanDistance(
-        embedding,
-        person.faceEmbedding,
-      );
-
-      if (distance < minDistance && distance < recognitionThreshold) {
-        minDistance = distance;
-        bestMatch = person;
-      }
-    }
-
-    // Step 2: If no match found locally, try Firebase fallback
-    if (bestMatch == null) {
-      try {
-        final user = await _authService.getCurrentUser();
-        if (user != null) {
-          // Fetch user document from Firebase
-          final userDoc = await _firestore.collection('users').doc(user.uid).get();
-          if (userDoc.exists) {
-            final data = userDoc.data();
-            final faceEmbedding = data?['faceEmbedding'];
-            
-            if (faceEmbedding != null && faceEmbedding is List) {
-              // Convert to List<double>
-              final firebaseEmbedding = faceEmbedding
-                  .map((e) => (e as num).toDouble())
-                  .toList();
-              
-              // Compare with Firebase embedding
-              final distance = _euclideanDistance(
-                embedding,
-                firebaseEmbedding,
-              );
-
-              if (distance < recognitionThreshold) {
-                // Match found in Firebase! Create Person object and sync to local storage
-                final person = Person(
-                  id: user.uid,
-                  name: user.name,
-                  employeeId: user.uid,
-                  faceEmbedding: firebaseEmbedding,
-                  registeredAt: DateTime.now(),
-                );
-                
-                // Sync to local storage for future offline recognition
-                await _personsBox.put(person.id, person);
-                
-                return person;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        // print('Error checking Firebase for face recognition: $e');
-        // Continue and return null if Firebase check fails
-      }
-    }
-
-    return bestMatch;
-  }
 
   /// Check if user is currently checked in (has more check-ins than check-outs today)
   Future<bool> isCurrentlyCheckedIn() async {
     final user = await _authService.getCurrentUser();
     if (user == null) return false;
 
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    // final dateStr = todayStart.toIso8601String().split('T')[0];
-
-    // Check Firebase first
     try {
       final todayRecord = await _getTodayRecord(user.uid);
       if (todayRecord != null) {
@@ -274,22 +58,6 @@ class AttendanceService {
       }
     } catch (e) {
       // Silent error
-    }
-
-    // Fallback to local storage (check for check-in without check-out)
-    if (!_isInitialized) return false;
-    final todayRecords = _attendanceBox.values
-        .where((r) => r.employeeId == user.uid &&
-               r.timestamp.year == todayStart.year &&
-               r.timestamp.month == todayStart.month &&
-               r.timestamp.day == todayStart.day)
-        .toList();
-
-    if (todayRecords.isNotEmpty) {
-      // Count check-ins vs check-outs
-      final checkInCount = todayRecords.where((r) => r.type == 'check_in').length;
-      final checkOutCount = todayRecords.where((r) => r.type == 'check_out').length;
-      return checkInCount > checkOutCount;
     }
 
     return false;
@@ -324,33 +92,6 @@ class AttendanceService {
     return null;
   }
 
-  /// Get college time settings (for backward compatibility)
-  Future<Map<String, int>?> getCollegeTimeSettings() async {
-    final details = await getCollegeDetails();
-    if (details == null) return null;
-    return {
-      'startHour': details['startTime'] as int,
-      'endHour': details['endTime'] as int,
-    };
-  }
-
-  /// Check if current time is within college hours
-  Future<bool> isWithinCollegeHours() async {
-    final details = await getCollegeDetails();
-    if (details == null) return true; // If no settings, allow anytime
-
-    final now = DateTime.now();
-    final currentHour = now.hour;
-    final startHourRaw = details['startTime'];
-    final endHourRaw = details['endTime'];
-    
-    // Handle both int and double types
-    final startHour = startHourRaw is int ? startHourRaw : (startHourRaw as num).toInt();
-    final endHour = endHourRaw is int ? endHourRaw : (endHourRaw as num).toInt();
-
-    return currentHour >= startHour && currentHour < endHour;
-  }
-
   /// Check if check-in is allowed (Midnight <= Now < Start Time)
   Future<bool> isCheckInAllowed() async {
     final details = await getCollegeDetails();
@@ -378,7 +119,6 @@ class AttendanceService {
     final endHour = endHourRaw is int ? endHourRaw : (endHourRaw as num).toInt();
 
     // Allowed if current hour is greater than or equal to end hour
-    // And implicitly less than 24 since currentHour is 0-23
     return currentHour >= endHour;
   }
 
@@ -456,8 +196,6 @@ class AttendanceService {
     }
   }
 
-
-
   /// Get today's attendance record for a user (if exists)
   Future<DocumentSnapshot?> _getTodayRecord(String userId) async {
     try {
@@ -493,581 +231,95 @@ class AttendanceService {
       }
       return null;
     } catch (e) {
-      // print('Error getting today\'s record: $e');
       return null;
     }
   }
 
-  Future<void> markAttendance({
-    required Person person,
-    required String type, // 'check_in' or 'check_out'
-    required double confidence,
-  }) async {
-    final timestamp = DateTime.now();
-
-    // Validate Check-in/Check-out pairing logic
-    // We need to check existing records to ensure proper sequence
-    final user = await _authService.getCurrentUser();
-    if (user != null) {
-      final todayRecord = await _getTodayRecord(user.uid);
-      
-      String? lastStatus;
-      if (todayRecord != null) {
-        final data = todayRecord.data() as Map<String, dynamic>?;
-        if (data != null) {
-          final events = List<Map<String, dynamic>>.from(
-            (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
-          );
-          
-          if (events.isNotEmpty) {
-            events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-            lastStatus = events.last['type'] as String?;
-          } else if (data['checkInTime'] != null) {
-            // Fallback for old format
-            lastStatus = data['checkoutTime'] == null ? 'check_in' : 'check_out';
-          }
-        }
-      }
-
-      // Enforce the rules
-      if (type == 'check_in') {
-        if (lastStatus == 'check_in') {
-          throw Exception('You are already checked in! Please check out first.');
-        }
-      } else if (type == 'check_out') {
-        if (lastStatus == null || lastStatus == 'check_out') {
-          throw Exception('You need to check in first before checking out.');
-        }
-      }
-    }
-
-    // Save to local storage immediately so UI can pop and feel instant
-    final record = AttendanceRecord(
-      personId: person.id,
-      personName: person.name,
-      employeeId: person.employeeId,
-      timestamp: timestamp,
-      confidence: confidence,
-      type: type,
-      synced: false,
-    );
-    await _attendanceBox.add(record);
-    await record.save();
-
-    // Sync to Firebase in background (don't block UI)
-    final isConnected = await _connectivityService.isConnected();
-    if (isConnected) {
-      unawaited(_syncAttendanceToFirebaseInBackground(
-        person: person,
-        type: type,
-        confidence: confidence,
-        timestamp: timestamp,
-        localRecord: record,
-      ));
-    }
-  }
-
-  /// Sync a single attendance record to Firebase in background.
-  /// Called after saving locally so the UI can pop immediately.
-  Future<void> _syncAttendanceToFirebaseInBackground({
-    required Person person,
-    required String type,
-    required double confidence,
-    required DateTime timestamp,
-    required AttendanceRecord localRecord,
-  }) async {
-    final today = DateTime(timestamp.year, timestamp.month, timestamp.day);
-    final dateStr = today.toIso8601String().split('T')[0];
-
-    double? latitude;
-    double? longitude;
-    try {
-      final position = await _locationService.getCurrentLocation();
-      if (position != null) {
-        latitude = position.latitude;
-        longitude = position.longitude;
-      }
-    } catch (e) {
-      // print('Error getting location in background sync: $e');
-    }
-
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user == null) return;
-
-      final todayRecord = await _getTodayRecord(user.uid);
-
-      if (todayRecord != null) {
-        final recordData = todayRecord.data() as Map<String, dynamic>?;
-        if (recordData != null) {
-          final updateData = <String, dynamic>{};
-          
-          // Get current events or initialize empty
-          final events = List<Map<String, dynamic>>.from(
-            (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
-          );
-
-          // Add new event
-          final newEvent = {
-            'type': type,
-            'time': timestamp.toIso8601String(),
-            'confidence': confidence,
-            if (latitude != null && longitude != null) 'latitude': latitude,
-            if (latitude != null && longitude != null) 'longitude': longitude,
-          };
-          events.add(newEvent);
-          
-          // Sort events by time to ensure order
-          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-
-          // Prepare update data
-          updateData['events'] = events;
-          
-          // Update top-level status fields for backward compatibility and quick lookups
-          if (type == 'check_in') {
-            updateData['checkInTime'] = timestamp.toIso8601String();
-            updateData['checkInConfidence'] = confidence;
-            updateData['type'] = 'check_in';
-          } else if (type == 'check_out') {
-            updateData['checkoutTime'] = timestamp.toIso8601String();
-            updateData['checkoutConfidence'] = confidence;
-            updateData['type'] = 'check_out';
-          }
-
-          if (latitude != null && longitude != null) {
-            updateData['latitude'] = latitude;
-            updateData['longitude'] = longitude;
-          }
-
-          updateData['personName'] = person.name;
-          updateData['personId'] = person.id;
-          updateData['employeeId'] = person.employeeId;
-          updateData['updatedAt'] = timestamp.toIso8601String();
-
-          await todayRecord.reference.update(updateData);
-        }
-      } else {
-        final eventData = {
-          'type': type,
-          'time': timestamp.toIso8601String(),
-          'confidence': confidence,
-        };
-        if (latitude != null && longitude != null) {
-          eventData['latitude'] = latitude;
-          eventData['longitude'] = longitude;
-        }
-
-        final recordData = {
-          'personId': person.id,
-          'personName': person.name,
-          'employeeId': person.employeeId,
-          'userId': user.uid,
-          'date': dateStr,
-          'timestamp': timestamp.toIso8601String(),
-          'confidence': confidence,
-          'type': type,
-          'events': [eventData],
-          if (type == 'check_in') 'checkInTime': timestamp.toIso8601String(),
-          if (type == 'check_in') 'checkInConfidence': confidence,
-          if (type == 'check_out') 'checkoutTime': timestamp.toIso8601String(),
-          if (type == 'check_out') 'checkoutConfidence': confidence,
-          if (latitude != null) 'latitude': latitude,
-          if (longitude != null) 'longitude': longitude,
-          'createdAt': timestamp.toIso8601String(),
-        };
-
-        await _firestore.collection('attendance').add(recordData);
-      }
-
-      localRecord.synced = true;
-      await localRecord.save();
-    } catch (e) {
-      // print('Error syncing attendance to Firebase in background: $e');
-      // Leave localRecord.synced = false; syncPendingAttendance will retry later
-    }
-  }
-
-
-
-  /// Sync all unsynced attendance records to Firebase
-  Future<void> syncPendingAttendance() async {
-    if (_isSyncing || !_isInitialized) return;
-    
-    final isConnected = await _connectivityService.isConnected();
-    if (!isConnected) {
-      // print('No internet connection, skipping sync');
-      return;
-    }
-
-    _isSyncing = true;
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user == null) {
-        _isSyncing = false;
-        return;
-      }
-
-      // Get all unsynced records (handle old records without synced field)
-      final unsyncedRecords = _attendanceBox.values
-          .where((record) => 
-            record.synced == false && 
-            record.employeeId == user.uid
-          )
-          .toList();
-
-      // print('Checking ${unsyncedRecords.length} pending attendance records for sync...');
-
-      // Group records by date
-      final recordsByDate = <String, List<AttendanceRecord>>{};
-      for (var record in unsyncedRecords) {
-        final dateStr = DateTime(
-          record.timestamp.year,
-          record.timestamp.month,
-          record.timestamp.day,
-        ).toIso8601String().split('T')[0];
-        
-        if (!recordsByDate.containsKey(dateStr)) {
-          recordsByDate[dateStr] = [];
-        }
-        recordsByDate[dateStr]!.add(record);
-      }
-
-      // int syncedCount = 0;
-      // int skippedCount = 0;
-
-      // Process each date's records
-      for (var entry in recordsByDate.entries) {
-        final dateStr = entry.key;
-        final records = entry.value;
-        
-        try {
-          // Check if today's record exists in Firebase
-          final todayRecord = await _getTodayRecord(user.uid);
-          
-          if (todayRecord != null) {
-            final recordData = todayRecord.data() as Map<String, dynamic>?;
-            if (recordData != null && recordData['date'] == dateStr) {
-              // Update existing record - merge events
-              final existingEvents = List<Map<String, dynamic>>.from(
-                (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
-              );
-              
-              // Sort to ensure order
-              if (existingEvents.isNotEmpty) {
-                existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-              }
-              
-              // Add new events from local storage (sorted by timestamp)
-              final sortedRecords = List<AttendanceRecord>.from(records)
-                ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-              
-              for (var record in sortedRecords) {
-                final timeStr = record.timestamp.toIso8601String();
-                // Check if event already exists (within 5 seconds to be safe)
-                final exists = existingEvents.any((e) {
-                  try {
-                    final existingTime = DateTime.parse(e['time'] as String);
-                    final recordTime = record.timestamp;
-                    return e['type'] == record.type && 
-                           (existingTime.difference(recordTime).abs().inSeconds <= 5);
-                  } catch (e) {
-                    return false;
-                  }
-                });
-                
-                if (!exists) {
-                  existingEvents.add({
-                    'type': record.type,
-                    'time': timeStr,
-                    'confidence': record.confidence,
-                  });
-                }
-              }
-              
-              // Sort again after adding new events
-              existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-              
-              final lastCheckIn = existingEvents.lastWhere((e) => e['type'] == 'check_in', orElse: () => {});
-              final lastCheckOut = existingEvents.lastWhere((e) => e['type'] == 'check_out', orElse: () => {});
-
-              final updateData = {
-                'events': existingEvents,
-                'updatedAt': DateTime.now().toIso8601String(),
-              };
-
-              if (lastCheckIn.isNotEmpty) {
-                updateData['checkInTime'] = lastCheckIn['time'];
-                updateData['checkInConfidence'] = lastCheckIn['confidence'];
-                updateData['type'] = existingEvents.last['type']; // Current status
-              }
-              if (lastCheckOut.isNotEmpty) {
-                updateData['checkoutTime'] = lastCheckOut['time'];
-                updateData['checkoutConfidence'] = lastCheckOut['confidence'];
-                updateData['type'] = existingEvents.last['type']; // Current status
-              }
-
-              await todayRecord.reference.update(updateData);
-              
-              // Mark all records for this date as synced
-              for (var record in records) {
-                record.synced = true;
-                await record.save();
-              }
-              // syncedCount++;
-              continue; // Skip to next date
-            }
-          }
-          
-          // Record doesn't exist, create new one
-          {
-            // Sort records by timestamp to maintain order
-            final sortedRecords = List<AttendanceRecord>.from(records)
-              ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-            
-            final events = sortedRecords.map((r) => <String, dynamic>{
-              'type': r.type,
-              'time': r.timestamp.toIso8601String(),
-              'confidence': r.confidence,
-            }).toList();
-            
-            Map<String, dynamic>? lastCheckIn;
-            Map<String, dynamic>? lastCheckOut;
-            
-            for (var event in events.reversed) {
-              if (lastCheckIn == null && event['type'] == 'check_in') {
-                lastCheckIn = event;
-              }
-              if (lastCheckOut == null && event['type'] == 'check_out') {
-                lastCheckOut = event;
-              }
-              if (lastCheckIn != null && lastCheckOut != null) break;
-            }
-            
-            final recordData = <String, dynamic>{
-              'personId': records.first.personId,
-              'personName': records.first.personName,
-              'employeeId': records.first.employeeId,
-              'userId': user.uid,
-              'date': dateStr,
-              'timestamp': records.first.timestamp.toIso8601String(),
-              'confidence': records.first.confidence,
-              'type': records.first.type,
-              'events': events,
-              // Backward compatibility
-            };
-            
-            if (lastCheckIn != null) {
-              recordData['checkInTime'] = lastCheckIn['time'];
-              recordData['checkInConfidence'] = lastCheckIn['confidence'];
-            }
-            if (lastCheckOut != null) {
-              recordData['checkoutTime'] = lastCheckOut['time'];
-              recordData['checkoutConfidence'] = lastCheckOut['confidence'];
-            }
-            
-            recordData['createdAt'] = DateTime.now().toIso8601String();
-            
-            await _firestore.collection('attendance').add(recordData);
-            
-            // Mark all records for this date as synced
-            for (var record in records) {
-              record.synced = true;
-              await record.save();
-            }
-            // syncedCount++;
-          }
-        } catch (e) {
-          // print('Error syncing records for date $dateStr: $e');
-          // Continue with next date
-        }
-      }
-
-      // print('Sync completed. $syncedCount date(s) synced, $skippedCount skipped.');
-    } catch (e) {
-      // print('Error during sync: $e');
-    } finally {
-      _isSyncing = false;
-    }
-  }
-
-  /// Start listening for connectivity changes and auto-sync
-  void startAutoSync() {
-    _connectivityService.connectivityStream.listen((results) async {
-      // Check if any connection type is available (not none)
-      final hasConnection = results.isNotEmpty && 
-          !results.contains(ConnectivityResult.none);
-      
-      if (hasConnection) {
-        // Internet available, sync pending records
-        await syncPendingAttendance();
-      }
-    });
-  }
-
   /// Get attendance history from Firebase strictly
-  Future<List<AttendanceRecord>> getAttendanceHistory() async {
-    final user = await _authService.getCurrentUser();
-    if (user == null) {
-      return [];
-    }
-
-    final List<AttendanceRecord> records = [];
-
-    // Fetch from Firebase - use employeeId instead of userId to avoid index requirement
+  Future<List<Map<String, dynamic>>> getAttendanceHistory() async {
     try {
-      final firebaseRecords = await _firestore
+      final user = await _authService.getCurrentUser();
+      if (user == null) return [];
+
+      final querySnapshot = await _firestore
           .collection('attendance')
-          .where('employeeId', isEqualTo: user.uid)
+          .where('userId', isEqualTo: user.uid)
+          .orderBy('createdAt', descending: true)
           .get();
 
-      // Convert and sort in memory
-      final firebaseList = <AttendanceRecord>[];
-      
-      for (var doc in firebaseRecords.docs) {
+      List<Map<String, dynamic>> allEvents = [];
+          
+      for (var doc in querySnapshot.docs) {
         final data = doc.data();
         
-        // Check for 'events' array (support multiple check-ins/outs per day)
-        if (data['events'] != null && data['events'] is List) {
-          final events = List<Map<String, dynamic>>.from(
-            (data['events'] as List).map((e) => Map<String, dynamic>.from(e as Map))
-          );
-          
-          for (var event in events) {
-            final type = event['type'] ?? 'check_in';
-            final timeStr = event['time'] as String?;
-            if (timeStr != null) {
-              firebaseList.add(AttendanceRecord(
-                personId: data['personId'] ?? '',
-                personName: data['personName'] ?? '',
-                employeeId: data['employeeId'] ?? '',
-                timestamp: DateTime.parse(timeStr),
-                confidence: (event['confidence'] ?? 0.0).toDouble(),
-                type: type,
-              ));
-            }
-          }
-        } else {
-          // Backward compatibility: use top-level fields
-          firebaseList.add(AttendanceRecord(
-            personId: data['personId'] ?? '',
-            personName: data['personName'] ?? '',
-            employeeId: data['employeeId'] ?? '',
-            timestamp: DateTime.parse(data['timestamp']),
-            confidence: (data['confidence'] ?? 0.0).toDouble(),
-            type: data['type'] ?? 'check_in',
-          ));
+        // Convert old singular records to event format if needed
+        if (data['events'] != null) {
+          final eventsList = (data['events'] as List).map((e) => e as Map<String, dynamic>).toList();
+          allEvents.addAll(eventsList);
+        } else if (data['type'] != null && data['timestamp'] != null) {
+          // Backward compatibility for old records
+          allEvents.add({
+            'type': data['type'],
+            'time': data['timestamp'],
+            'confidence': data['confidence'] ?? 1.0,
+          });
         }
       }
-
-      // Sort by timestamp descending
-      firebaseList.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      records.addAll(firebaseList.take(100)); // Limit to 100 most recent
+      
+      // Sort all events by time descending
+      allEvents.sort((a, b) {
+        try {
+          final timeA = DateTime.parse(a['time'] as String);
+          final timeB = DateTime.parse(b['time'] as String);
+          return timeB.compareTo(timeA); // Descending
+        } catch (e) {
+          return 0;
+        }
+      });
+      
+      return allEvents;
     } catch (e) {
-      // print('Error fetching attendance from Firebase: $e');
-    }
-
-    // Removed local merge to ensure we only show synced Firebase records
-    records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    
-    // Trigger sync in background (don't wait for it)
-    syncPendingAttendance();
-    
-    return records;
-  }
-
-  Future<List<DailyAttendance>> getDailyAttendanceHistory() async {
-    final user = await _authService.getCurrentUser();
-    if (user == null) {
       return [];
     }
+  }
+
+  /// Get daily grouped attendance history
+  Future<List<Map<String, dynamic>>> getDailyAttendanceHistory() async {
+    final user = await _authService.getCurrentUser();
+    if (user == null) return [];
 
     try {
-      // Fetch from Firebase
-      final firebaseRecords = await _firestore
+      final querySnapshot = await _firestore
           .collection('attendance')
-          .where('userId', isEqualTo: user.uid) // Use userId for daily records
+          .where('userId', isEqualTo: user.uid)
+          .orderBy('createdAt', descending: true)
           .get();
 
-      final dailyRecords = firebaseRecords.docs.map((doc) {
+      List<Map<String, dynamic>> dailyRecords = [];
+      
+      for (var doc in querySnapshot.docs) {
         final data = doc.data();
-        if (data['date'] != null) {
-          return DailyAttendance.fromFirestore(data);
-        }
-         // Fallback for old records without 'date' field
-         // This logic is slightly complex as it requires grouping manually
-         // We'll skip legacy handling for now as new records have 'date'
-         return null;
-      }).whereType<DailyAttendance>().toList();
+        final dateStr = data['date'] as String? ?? 
+            (data['timestamp'] != null ? data['timestamp'].toString().split('T')[0] : '');
+            
+        if (dateStr.isEmpty) continue;
 
-      dailyRecords.sort((a, b) => b.date.compareTo(a.date));
+        final events = List<Map<String, dynamic>>.from(
+          (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+        );
+
+        dailyRecords.add({
+          'date': dateStr,
+          'checkIn': data['checkInTime'],
+          'checkOut': data['checkoutTime'],
+          'status': data['type'],
+          'events': events,
+        });
+      }
       
       return dailyRecords;
     } catch (e) {
-      // print('Error fetching daily attendance: $e');
       return [];
     }
-  }
-
-  List<DailyAttendance> _groupRecordsByDay(List<AttendanceRecord> records) {
-      final groups = <String, List<AttendanceRecord>>{};
-      for (var record in records) {
-        final date = record.timestamp.toIso8601String().split('T')[0];
-        if (!groups.containsKey(date)) {
-          groups[date] = [];
-        }
-        groups[date]!.add(record);
-      }
-
-      final dailyList = <DailyAttendance>[];
-      groups.forEach((date, dayRecords) {
-        // Create ad-hoc DailyAttendance from local records
-        dayRecords.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-        final events = dayRecords.map((r) => {
-          'type': r.type,
-          'time': r.timestamp.toIso8601String(),
-          'confidence': r.confidence,
-        }).toList();
-
-        final firstIn = dayRecords.firstWhere((r) => r.type == 'check_in', orElse: () => dayRecords.first);
-        final lastOut = dayRecords.lastWhere((r) => r.type == 'check_out', orElse: () => dayRecords.last);
-        
-        dailyList.add(DailyAttendance(
-          date: date,
-          checkInTime: firstIn.type == 'check_in' ? firstIn.timestamp : null,
-          checkoutTime: lastOut.type == 'check_out' ? lastOut.timestamp : null,
-          events: events,
-          isPresent: true,
-        ));
-      });
-
-      dailyList.sort((a, b) => b.date.compareTo(a.date));
-      return dailyList;
-  }
-
-  List<AttendanceRecord> getAttendanceByPerson(String personId) {
-    return _attendanceBox.values
-        .where((record) => record.personId == personId)
-        .toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-  }
-
-  List<Person> getAllPersons() {
-    return _personsBox.values.toList();
-  }
-
-  Future<void> deletePerson(String personId) async {
-    await _personsBox.delete(personId);
-    // Optionally delete attendance records too
-    final records = _attendanceBox.values
-        .where((record) => record.personId == personId)
-        .toList();
-    for (var record in records) {
-      await record.delete();
-    }
-  }
-
-  Future<void> clearAllData() async {
-    await _personsBox.clear();
-    await _attendanceBox.clear();
   }
 }

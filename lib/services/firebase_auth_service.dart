@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_profile.dart';
@@ -113,12 +114,12 @@ class FirebaseAuthService {
 
   /// Get the current authenticated user profile
   Future<UserProfile?> getCurrentUser() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        return null;
-      }
+    final user = _auth.currentUser;
+    if (user == null) {
+      return null;
+    }
 
+    try {
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
 
       if (!userDoc.exists) {
@@ -132,7 +133,17 @@ class FirebaseAuthService {
 
       return UserProfile.fromFirestore(data, userDoc.id);
     } catch (e) {
-      throw Exception('Failed to get current user: ${e.toString()}');
+      // Firestore fetch failed (e.g. no network), but user IS logged in.
+      // Return a minimal profile so the app doesn't kick them to login.
+      debugPrint('Firestore profile fetch failed, using fallback: $e');
+      return UserProfile(
+        uid: user.uid,
+        email: user.email ?? '',
+        name: user.displayName ?? '',
+        role: '',
+        profileCompleted: true,
+        active: true,
+      );
     }
   }
 

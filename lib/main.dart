@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'services/attendance_service.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
@@ -12,6 +13,15 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase safely
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase already initialized: $e');
+  }
   
   // Set preferred orientations
   SystemChrome.setPreferredOrientations([
@@ -58,12 +68,7 @@ class _MyAppState extends State<MyApp> {
   Future<void> _initialize() async {
     final startTime = DateTime.now();
     try {
-      // 1. Initialize Firebase
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-
-      // 2. Initialize Notification Service (non-blocking)
+      // 1. Initialize Notification Service (non-blocking)
       NotificationService().initialize().catchError((e) => debugPrint('Notification init warning: $e'));
 
       // 3. Initialize Attendance Service (non-blocking)
@@ -106,7 +111,12 @@ class _MyAppState extends State<MyApp> {
 
       if (mounted) {
         setState(() {
-          _initialScreen = const WelcomeScreen();
+          // If user is logged in via Firebase Auth, don't kick them to login
+          if (FirebaseAuth.instance.currentUser != null) {
+            _initialScreen = const MainTabNavigator();
+          } else {
+            _initialScreen = const WelcomeScreen();
+          }
           _initialized = true;
         });
       }
