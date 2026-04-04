@@ -7,6 +7,7 @@ import '../services/firebase_auth_service.dart';
 import '../services/firestore_service.dart';
 import 'complete_profile_screen.dart';
 import '../services/firebase_storage_service.dart';
+import '../utils/user_friendly_errors.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -33,7 +34,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _agreeToTerms = true; // Default checked
   bool _loading = false;
   bool _loadingColleges = true;
-  List<Map<String, dynamic>> _colleges = [];
   List<DropdownMenuItem<String>> _collegeItems = [];
   File? _profileImage;
 
@@ -44,13 +44,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     {'label': 'Non-Teaching', 'value': 'non-teaching'},
     {'label': 'Ministerial Staff', 'value': 'ministerial-staff'},
     {'label': 'Officers', 'value': 'officers'},
-  ];
-
-  final List<String> _rolesRequiringCollege = [
-    'principal',
-    'vice-principal',
-    'teaching',
-    'non-teaching',
   ];
 
   @override
@@ -71,11 +64,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
     try {
       final colleges = await _firestoreService.getColleges();
       setState(() {
-        _colleges = colleges;
         _collegeItems = colleges.map((college) {
           return DropdownMenuItem<String>(
             value: college['id'] as String,
-            child: Text(college['name'] as String? ?? ''),
+            child: Text(
+              college['name'] as String? ?? '',
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           );
         }).toList();
         _loadingColleges = false;
@@ -84,7 +80,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       setState(() => _loadingColleges = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading colleges: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -107,16 +103,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
   }
 
-  bool get _shouldShowCollegeDropdown {
-    return _selectedRole != null &&
-        _rolesRequiringCollege.contains(_selectedRole);
-  }
+  /// College is required for every role once a role is chosen.
+  bool get _shouldShowCollegeField => _selectedRole != null;
 
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) {
@@ -130,7 +124,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
-    if (_shouldShowCollegeDropdown && _selectedCollege == null) {
+    if (_selectedCollege == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a college')),
       );
@@ -153,8 +147,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
         password: _passwordController.text,
         fullName: _nameController.text.trim(),
         role: _selectedRole!,
-        college: _shouldShowCollegeDropdown ? _selectedCollege : null,
-        collegeId: _shouldShowCollegeDropdown ? _selectedCollege : null,
+        college: _selectedCollege,
+        collegeId: _selectedCollege,
       );
 
       // 2. Upload profile image if selected
@@ -175,7 +169,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           // Don't fail the whole sign up, just show a warning
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Account created, but failed to upload image: $e')),
+              SnackBar(content: Text(UserFriendlyErrors.message(e))),
             );
           }
         }
@@ -190,7 +184,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     } finally {
@@ -393,16 +387,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   items: _roleOptions.map((role) {
                     return DropdownMenuItem<String>(
                       value: role['value'],
-                      child: Text(role['label']!),
+                      child: Text(
+                        role['label']!,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
                     );
                   }).toList(),
                   onChanged: (value) {
-                    setState(() {
-                      _selectedRole = value;
-                      if (!_shouldShowCollegeDropdown) {
-                        _selectedCollege = null;
-                      }
-                    });
+                    setState(() => _selectedRole = value);
                   },
                   validator: (value) {
                     if (value == null) {
@@ -412,8 +405,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   },
                 ),
 
-                // College Dropdown (conditional)
-                if (_shouldShowCollegeDropdown) ...[
+                // College (required for every role)
+                if (_shouldShowCollegeField) ...[
                   const SizedBox(height: AppTheme.spacingLG),
                   _loadingColleges
                       ? const Center(child: CircularProgressIndicator())
@@ -629,13 +622,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }) {
     return DropdownButtonFormField<String>(
       initialValue: value,
+      isExpanded: true,
+      selectedItemBuilder: (context) {
+        return items.map((item) {
+          final c = item.child;
+          final label = c is Text
+              ? (c.data ?? '')
+              : (item.value?.toString() ?? '');
+          return Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 15, color: AppTheme.text),
+            ),
+          );
+        }).toList();
+      },
       decoration: InputDecoration(
         labelText: label,
+        isDense: true,
         labelStyle: const TextStyle(
           color: AppTheme.textSecondary,
           fontSize: 15,
         ),
         prefixIcon: Icon(icon, size: 20, color: AppTheme.textSecondary),
+        prefixIconConstraints: const BoxConstraints(minWidth: 44, maxWidth: 44),
         filled: true,
         fillColor: AppTheme.backgroundDark,
         border: OutlineInputBorder(

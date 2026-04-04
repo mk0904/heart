@@ -10,6 +10,7 @@ import 'edit_profile_screen.dart';
 import 'events_screen.dart';
 import 'invitations_screen.dart';
 import 'colleagues_screen.dart';
+import 'review_submissions_screen.dart';
 import 'submit_data_screen.dart';
 import 'notifications_screen.dart';
 import 'notification_detail_screen.dart';
@@ -17,6 +18,7 @@ import '../services/firebase_auth_service.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import 'dart:async';
+import '../utils/user_friendly_errors.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isActive;
@@ -204,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to mark as read: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
         // Reload on error to ensure consistency
         await _loadNotifications();
@@ -490,9 +492,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (context) => const EditProfileScreen(),
                   ),
                 );
-                // Refresh user profile if profile was updated
                 if (result == true && mounted) {
                   await _loadUserProfile();
+                  await _checkActiveStatus();
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -533,6 +535,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
           }
+        } else if (!active && widget.isActive) {
+          // If user was shown active UI but is actually inactive
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const MainTabNavigator(isActive: false),
+              ),
+            );
+          }
         } else if (!active) {
           // Still inactive, show a message
           if (mounted) {
@@ -549,7 +561,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error checking status: $e'),
+            content: Text(UserFriendlyErrors.message(e)),
             backgroundColor: AppTheme.error,
           ),
         );
@@ -731,27 +743,41 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
     ];
-    
-    if (!widget.isActive) {
-      features.add(
-        _FeatureItem(
-          title: 'Edit\nProfile',
-          icon: Icons.edit,
-          color: const Color(0xFF5A2A27),
-          onTap: () async {
-            final result = await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const EditProfileScreen()),
-            );
-            if (result == true && mounted) {
-              await _loadUserProfile();
-            }
-          },
-        ),
-      );
-    }
-    
-    // Check if user should see data tile
+
+    features.add(
+      _FeatureItem(
+        title: 'Edit\nProfile',
+        icon: Icons.edit,
+        color: const Color(0xFF5A2A27),
+        onTap: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const EditProfileScreen()),
+          );
+          if (result == true && mounted) {
+            await _loadUserProfile();
+            await _checkActiveStatus();
+          }
+        },
+      ),
+    );
+
+    // Enrollment data: submit form for all roles; principals also get a dedicated review tile.
+    features.add(
+      _FeatureItem(
+        title: 'Submit\nData',
+        icon: Icons.cloud_upload,
+        color: AppTheme.primary,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SubmitDataScreen(),
+            ),
+          );
+        },
+      ),
+    );
     if (_userRole != null) {
       final role = _userRole!.toLowerCase().replaceAll('-', ' ');
       if (role == 'principal') {
@@ -759,25 +785,13 @@ class _HomeScreenState extends State<HomeScreen> {
           _FeatureItem(
             title: 'Review\nSubmissions',
             icon: Icons.fact_check,
-            color: AppTheme.primary,
+            color: AppTheme.secondary,
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SubmitDataScreen()),
-              );
-            },
-          ),
-        );
-      } else if (role == 'ministerial staff') {
-        features.add(
-          _FeatureItem(
-            title: 'Submit\nData',
-            icon: Icons.cloud_upload,
-            color: AppTheme.primary,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SubmitDataScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const ReviewSubmissionsScreen(),
+                ),
               );
             },
           ),

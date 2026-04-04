@@ -6,6 +6,7 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firebase_storage_service.dart';
 import 'dart:io';
+import '../utils/user_friendly_errors.dart';
 
 class ProjectSubmissionScreen extends StatefulWidget {
   final Map<String, dynamic> project;
@@ -142,7 +143,8 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   }
 
   Future<void> _pickImage() async {
-    if (_images.length >= 5) {
+    final totalImages = _existingImageUrls.length + _images.length;
+    if (totalImages >= 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Maximum 5 images allowed')),
       );
@@ -162,7 +164,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e')),
+        SnackBar(content: Text(UserFriendlyErrors.message(e))),
       );
     }
   }
@@ -170,6 +172,12 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   void _removeImage(int index) {
     setState(() {
       _images.removeAt(index);
+    });
+  }
+
+  void _removeExistingImage(int index) {
+    setState(() {
+      _existingImageUrls.removeAt(index);
     });
   }
 
@@ -250,7 +258,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error submitting: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     } finally {
@@ -580,6 +588,9 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
   }
 
   Widget _buildImagesSection() {
+    final totalImages = _existingImageUrls.length + _images.length;
+    final tileSize = (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -600,17 +611,17 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                 vertical: 4,
               ),
               decoration: BoxDecoration(
-                color: _images.isNotEmpty
+                color: totalImages > 0
                     ? AppTheme.successLight
                     : AppTheme.warningLight,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                '${_images.length} selected',
+                '$totalImages selected',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _images.isNotEmpty
+                  color: totalImages > 0
                       ? AppTheme.success
                       : AppTheme.warning,
                 ),
@@ -623,14 +634,74 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
           spacing: AppTheme.spacingXS,
           runSpacing: AppTheme.spacingXS,
           children: [
+            // Existing uploaded images (from Firestore)
+            ..._existingImageUrls.asMap().entries.map((entry) {
+              final index = entry.key;
+              final url = entry.value;
+              return Stack(
+                children: [
+                  Container(
+                    width: tileSize,
+                    height: tileSize,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                      border: Border.all(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            color: AppTheme.backgroundDark,
+                            child: const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: AppTheme.borderLight,
+                            child: const Icon(Icons.broken_image, size: 32, color: AppTheme.textSecondary),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () => _removeExistingImage(index),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.error,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: AppTheme.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
+            // Newly picked local images
             ..._images.asMap().entries.map((entry) {
               final index = entry.key;
               final image = entry.value;
               return Stack(
                 children: [
                   Container(
-                    width: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
-                    height: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
+                    width: tileSize,
+                    height: tileSize,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(AppTheme.radiusBase),
                       border: Border.all(color: AppTheme.borderLight, width: 0.5),
@@ -672,12 +743,13 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                 ],
               );
             }),
-            if (_images.length < 5)
+            // Add button
+            if (totalImages < 5)
               GestureDetector(
                 onTap: _pickImage,
                 child: Container(
-                  width: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
-                  height: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
+                  width: tileSize,
+                  height: tileSize,
                   decoration: BoxDecoration(
                     border: Border.all(
                       color: AppTheme.borderLight,
@@ -811,7 +883,7 @@ class _ProjectSubmissionScreenState extends State<ProjectSubmissionScreen> {
                                       _previousPercentage >= 100 ||
                                       _percentage < _previousPercentage ||
                                       _notesController.text.trim().isEmpty ||
-                                      _images.isEmpty)
+                                      (_images.isEmpty && _existingImageUrls.isEmpty))
                                   ? null
                                   : _handleSubmit,
                               style: ElevatedButton.styleFrom(

@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import 'circular_detail_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class CircularsScreen extends StatefulWidget {
   const CircularsScreen({super.key});
@@ -103,7 +104,7 @@ class _CircularsScreenState extends State<CircularsScreen> with SingleTickerProv
       _skeletonAnimationController.stop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading circulars: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }

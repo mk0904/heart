@@ -15,6 +15,39 @@ class LocationService {
     return status.isGranted;
   }
 
+  /// Best-effort fix for persisting with each attendance event (high accuracy →
+  /// last known → medium accuracy). Call from [markAttendance] so Firebase always
+  /// gets coordinates captured at check-in/out time.
+  Future<Position?> getLocationForAttendanceSnapshot() async {
+    Position? p = await getCurrentLocation();
+    if (p != null) return p;
+
+    try {
+      p = await Geolocator.getLastKnownPosition();
+      if (p != null) return p;
+    } catch (e) {
+      debugPrint('getLastKnownPosition: $e');
+    }
+
+    try {
+      if (!await hasPermission()) {
+        final granted = await requestPermission();
+        if (!granted) return null;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 25),
+        ),
+      );
+    } catch (e) {
+      debugPrint('getLocationForAttendanceSnapshot fallback: $e');
+      return null;
+    }
+  }
+
   /// Get current location
   Future<Position?> getCurrentLocation() async {
     try {
@@ -32,9 +65,12 @@ class LocationService {
         return null;
       }
 
-      // Get current position
+      // Bounded wait — avoids indefinite hangs indoors / weak GPS (Android check-in flow).
       return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
+        ),
       );
     } catch (e) {
       debugPrint('Error getting location: $e');
@@ -42,25 +78,35 @@ class LocationService {
     }
   }
 
-  /// Calculate distance between two coordinates in kilometers using Haversine formula
+  /// Straight-line distance between two coordinates in **meters** (Haversine).
+  double distanceBetweenMeters(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
+  }
+
+  /// Distance in kilometers (convenience for display / legacy).
   double calculateDistance(
     double lat1,
     double lon1,
     double lat2,
     double lon2,
   ) {
-    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000; // Convert meters to km
+    return distanceBetweenMeters(lat1, lon1, lat2, lon2) / 1000;
   }
 
-  /// Check if user is within the geofence (maxDistance in km)
+  /// [maxRadiusMeters] matches Firebase `colleges.maxDistance` (meters).
   bool isWithinGeofence(
     double userLat,
     double userLon,
     double collegeLat,
     double collegeLon,
-    double maxDistance,
+    double maxRadiusMeters,
   ) {
-    final distance = calculateDistance(userLat, userLon, collegeLat, collegeLon);
-    return distance <= maxDistance;
+    final distanceM = distanceBetweenMeters(userLat, userLon, collegeLat, collegeLon);
+    return distanceM <= maxRadiusMeters;
   }
 }

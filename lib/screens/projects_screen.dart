@@ -4,6 +4,7 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import 'project_detail_screen.dart';
 import 'project_submission_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class ProjectsScreen extends StatefulWidget {
   const ProjectsScreen({super.key});
@@ -105,7 +106,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> with SingleTickerProvid
       _skeletonAnimationController.stop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading projects: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }

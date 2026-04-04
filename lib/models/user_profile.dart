@@ -7,7 +7,6 @@ class UserProfile {
   final String? collegeId; // Alias for college
   final String? createdOn; // ISO string format
   final bool? active;
-  final String? status;
   final String? phone;
   final String? phoneNumber;
   final String? designation;
@@ -15,6 +14,8 @@ class UserProfile {
   final DateTime? updatedAt;
   final bool? profileCompleted;
   final String? photoUrl;
+  /// Cropped face at registration (Storage); distinct from profile [photoUrl].
+  final String? faceImageUrl;
   final String? employmentType;
   final String? payBand;
   final DateTime? dateOfAppointment;
@@ -32,7 +33,6 @@ class UserProfile {
     this.collegeId,
     this.createdOn,
     this.active,
-    this.status,
     this.phone,
     this.phoneNumber,
     this.designation,
@@ -40,6 +40,7 @@ class UserProfile {
     this.updatedAt,
     this.profileCompleted,
     this.photoUrl,
+    this.faceImageUrl,
     this.employmentType,
     this.payBand,
     this.dateOfAppointment,
@@ -83,7 +84,6 @@ class UserProfile {
       collegeId: collegeId, // Use college field as collegeId
       createdOn: data['createdOn']?.toString(),
       active: data['active'],
-      status: data['status'],
       phone: data['phone'],
       phoneNumber: data['phoneNumber'],
       designation: data['designation'],
@@ -91,6 +91,7 @@ class UserProfile {
       updatedAt: parseDate(data['updatedAt']),
       profileCompleted: data['profileCompleted'],
       photoUrl: data['photoUrl'],
+      faceImageUrl: data['faceImageUrl'] as String?,
       employmentType: data['employmentType'],
       payBand: data['payBand'],
       dateOfAppointment: parseDate(data['dateOfAppointment']),
@@ -111,7 +112,6 @@ class UserProfile {
       if (collegeId != null) 'collegeId': collegeId,
       if (createdOn != null) 'createdOn': createdOn,
       if (active != null) 'active': active,
-      if (status != null) 'status': status,
       if (phone != null) 'phone': phone,
       if (phoneNumber != null) 'phoneNumber': phoneNumber,
       if (designation != null) 'designation': designation,
@@ -119,6 +119,7 @@ class UserProfile {
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (profileCompleted != null) 'profileCompleted': profileCompleted,
       if (photoUrl != null) 'photoUrl': photoUrl,
+      if (faceImageUrl != null) 'faceImageUrl': faceImageUrl,
       if (employmentType != null) 'employmentType': employmentType,
       if (payBand != null) 'payBand': payBand,
       if (dateOfAppointment != null) 'dateOfAppointment': dateOfAppointment,

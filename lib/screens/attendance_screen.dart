@@ -1,13 +1,18 @@
+import 'dart:io' show Platform;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../theme/app_theme.dart';
-import '../services/attendance_service.dart';
-import '../services/attendance_service.dart';
-import '../services/firebase_auth_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+import '../services/attendance_service.dart';
+import '../services/firebase_auth_service.dart';
+import '../theme/app_theme.dart';
 import 'attendance_webview_modal.dart';
+import 'mark_attendance_screen.dart';
+import 'register_face_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -18,6 +23,10 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   final AttendanceService _attendanceService = AttendanceService();
+
+  /// Native camera + on-device model (Android reference app). iOS keeps webview flow.
+  bool get _useNativeAndroidAttendance =>
+      !kIsWeb && Platform.isAndroid;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final ScrollController _scrollController = ScrollController();
   bool _isEnrolled = false;
@@ -27,11 +36,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   String _historyFilter = 'all'; // 'all', 'check-in', 'check-out'
   List<Map<String, dynamic>> _historyRecords = [];
   bool _isLoadingHistory = false;
-  
+  /// From Firestore `users/{uid}.faceImageUrl` after registration upload.
+  String? _faceImageUrl;
+
+  static const double _avatarSize = 88;
+
   // Eligibility State
   bool _isCheckingEligibility = true;
   bool _isEligible = false;
   String? _eligibilityMessage;
+
+  /// College schedule from Firebase (`startTime`/`endTime` as int hour or `"HH:mm"` 24h string).
+  int? _collegeStartHour;
+  int? _collegeStartMinute;
+  int? _collegeEndHour;
+  int? _collegeEndMinute;
 
   @override
   void initState() {
@@ -41,6 +60,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _checkEnrollmentStatus();
     // Load history separately (non-blocking, can show loading state)
     _loadHistoryRecords();
+    _loadCollegeSchedule();
     // Check eligibility logic (Time & Location)
     _checkEligibility();
   }
@@ -80,14 +100,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         final isCheckedIn = results[1] as bool;
         
         bool hasRegistration = false;
+        String? faceUrl;
         if (userDoc.exists) {
           final data = userDoc.data() as Map<String, dynamic>?;
           hasRegistration = data?['faceRegistered'] ?? false;
+          faceUrl = data?['faceImageUrl'] as String?;
         }
         
         if (mounted) {
           setState(() {
             _isEnrolled = hasRegistration;
+            _faceImageUrl = hasRegistration ? faceUrl : null;
             _isCheckedIn = isCheckedIn;
             _isLoading = false;
           });
@@ -95,6 +118,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       } else {
         setState(() {
           _isEnrolled = false;
+          _faceImageUrl = null;
           _isCheckedIn = false;
           _isLoading = false;
         });
@@ -103,6 +127,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       if (mounted) {
         setState(() {
           _isEnrolled = false;
+          _faceImageUrl = null;
           _isCheckedIn = false;
           _isLoading = false;
         });
@@ -148,8 +173,48 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     await Future.wait([
       _checkEnrollmentStatus(),
       _loadHistoryRecords(),
+      _loadCollegeSchedule(),
       _checkEligibility(),
     ]);
+  }
+
+  Future<void> _loadCollegeSchedule() async {
+    try {
+      final details = await _attendanceService.getCollegeDetails();
+      if (!mounted) return;
+      setState(() {
+        if (details != null) {
+          _collegeStartHour = details['startHour'] as int?;
+          _collegeStartMinute = details['startMinute'] as int? ?? 0;
+          _collegeEndHour = details['endHour'] as int?;
+          _collegeEndMinute = details['endMinute'] as int? ?? 0;
+        } else {
+          _collegeStartHour = null;
+          _collegeStartMinute = null;
+          _collegeEndHour = null;
+          _collegeEndMinute = null;
+        }
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _collegeStartHour = null;
+          _collegeStartMinute = null;
+          _collegeEndHour = null;
+          _collegeEndMinute = null;
+        });
+      }
+    }
+  }
+
+  /// Formats 24h clock as 12h with minutes, e.g. `9:00 AM`, `2:30 PM`.
+  String _formatCollegeTime(int hour24, int minute) {
+    final h = hour24.clamp(0, 23);
+    final m = minute.clamp(0, 59);
+    final period = h >= 12 ? 'PM' : 'AM';
+    final displayH = h % 12 == 0 ? 12 : h % 12;
+    final mm = m.toString().padLeft(2, '0');
+    return '$displayH:$mm $period';
   }
 
   Future<void> _checkEligibility() async {
@@ -242,16 +307,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           slivers: [
                             // Cards Section
                             SliverPadding(
-                              padding: const EdgeInsets.all(AppTheme.spacingLG),
+                              padding: const EdgeInsets.fromLTRB(
+                                AppTheme.spacingMD,
+                                AppTheme.spacingSM,
+                                AppTheme.spacingMD,
+                                AppTheme.spacingLG,
+                              ),
                               sliver: SliverList(
                                 delegate: SliverChildListDelegate([
-                                  // Status Card
-                                  _buildStatusCard(),
-                                  const SizedBox(height: AppTheme.spacingMD),
-                                  
-                                  // Action Buttons Card
+                                  _buildScheduleInfoCard(),
+                                  if (_collegeStartHour != null &&
+                                      _collegeEndHour != null)
+                                    const SizedBox(height: AppTheme.spacingSM),
                                   _buildActionsCard(),
-                                  const SizedBox(height: AppTheme.spacingXL),
+                                  const SizedBox(height: AppTheme.spacingLG),
                                   
                                   // History Section
                                   _buildHistorySection(),
@@ -291,8 +360,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleRegisterFace() async {
+    if (_useNativeAndroidAttendance) {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (context) => const RegisterFaceScreen()),
+      );
+      if (result == true) {
+        await _checkEnrollmentStatus();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Face registered successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     final position = await _getLocation();
-    
+
     final result = await Navigator.push<bool>(
       context,
       PageRouteBuilder(
@@ -320,8 +410,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleCheckIn() async {
+    if (_useNativeAndroidAttendance) {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const MarkAttendanceScreen(isCheckIn: true),
+        ),
+      );
+      if (result == true) {
+        if (mounted) {
+          setState(() {
+            _isCheckedIn = true;
+          });
+        }
+        _loadHistoryRecords();
+        _checkEligibility();
+        Future.delayed(const Duration(seconds: 2), () async {
+          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+          if (mounted && confirmed != _isCheckedIn) {
+            setState(() => _isCheckedIn = confirmed);
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Checked in successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     final position = await _getLocation();
-    
+
     final result = await Navigator.push<bool>(
       context,
       PageRouteBuilder(
@@ -363,8 +488,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleCheckOut() async {
+    if (_useNativeAndroidAttendance) {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const MarkAttendanceScreen(isCheckIn: false),
+        ),
+      );
+      if (result == true) {
+        if (mounted) {
+          setState(() {
+            _isCheckedIn = false;
+          });
+        }
+        _loadHistoryRecords();
+        _checkEligibility();
+        Future.delayed(const Duration(seconds: 2), () async {
+          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+          if (mounted && confirmed != _isCheckedIn) {
+            setState(() => _isCheckedIn = confirmed);
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Checked out successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     final position = await _getLocation();
-    
+
     final result = await Navigator.push<bool>(
       context,
       PageRouteBuilder(
@@ -464,9 +624,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
 
-  Widget _buildStatusCard() {
+  Widget _buildScheduleInfoCard() {
+    if (_collegeStartHour == null || _collegeEndHour == null) {
+      return const SizedBox.shrink();
+    }
+    final startH = _collegeStartHour!;
+    final startM = _collegeStartMinute ?? 0;
+    final endH = _collegeEndHour!;
+    final endM = _collegeEndMinute ?? 0;
     return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingLG),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTheme.spacingMD,
+        vertical: AppTheme.spacingSM,
+      ),
       decoration: BoxDecoration(
         color: AppTheme.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusBase),
@@ -474,46 +645,48 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         boxShadow: AppTheme.shadowSM,
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: _isEnrolled 
-                  ? AppTheme.successLight 
-                  : AppTheme.warningLight,
-              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
             child: Icon(
-              _isEnrolled ? Icons.check_circle : Icons.info,
-              color: _isEnrolled ? AppTheme.success : AppTheme.warning,
-              size: 24,
+              Icons.schedule,
+              size: 16,
+              color: AppTheme.primary.withValues(alpha: 0.85),
             ),
           ),
-          const SizedBox(width: AppTheme.spacingMD),
+          const SizedBox(width: AppTheme.spacingSM),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _isEnrolled ? 'Face Registered' : 'Face Not Registered',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.text,
-                  ),
+            child: Text.rich(
+              TextSpan(
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.35,
+                  color: AppTheme.textSecondary,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _isEnrolled
-                      ? 'You can now mark attendance'
-                      : 'Register your face to enable attendance',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textSecondary,
+                children: [
+                  const TextSpan(text: 'Check-in ends '),
+                  TextSpan(
+                    text: _formatCollegeTime(startH, startM),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.text,
+                    ),
                   ),
-                ),
-              ],
+                  TextSpan(
+                    text: ' · ',
+                    style: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.7)),
+                  ),
+                  const TextSpan(text: 'Check-out from '),
+                  TextSpan(
+                    text: _formatCollegeTime(endH, endM),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.text,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -523,26 +696,196 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildActionsCard() {
     return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingLG),
       decoration: BoxDecoration(
         color: AppTheme.white,
-        borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLG),
         border: Border.all(color: AppTheme.borderLight, width: 0.5),
         boxShadow: AppTheme.shadowSM,
       ),
-      child: Column(
-        children: [
-          if (!_isEnrolled)
-            _buildRegisterButton()
-          else
-            Column(
-              children: [
-                _buildMarkAttendanceButton(),
-                const SizedBox(height: AppTheme.spacingMD),
-                _buildReRegisterButton(),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.radiusLG),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!_isEnrolled)
+              Padding(
+                padding: const EdgeInsets.all(AppTheme.spacingMD),
+                child: _buildRegisterButton(),
+              )
+            else
+              _buildEnrolledAttendanceCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Polished layout: identity (left) + status + primary CTA; secondary action separated below.
+  Widget _buildEnrolledAttendanceCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.spacingBase,
+            AppTheme.spacingLG,
+            AppTheme.spacingBase,
+            AppTheme.spacingMD,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildRegisteredFaceAvatar(),
+              const SizedBox(width: AppTheme.spacingBase),
+              Expanded(
+                child: _buildMarkAttendanceButton(),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingBase),
+          child: Divider(
+            height: 1,
+            thickness: 1,
+            color: AppTheme.borderLight.withValues(alpha: 0.9),
+          ),
+        ),
+        Material(
+          color: AppTheme.backgroundLight.withValues(alpha: 0.65),
+          child: InkWell(
+            onTap: _handleRegisterFace,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppTheme.spacingMD,
+                horizontal: AppTheme.spacingBase,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.camera_front_outlined,
+                    size: 20,
+                    color: AppTheme.primary.withValues(alpha: 0.88),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Update registered face',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.primary.withValues(alpha: 0.92),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 22,
+                    color: AppTheme.textSecondary.withValues(alpha: 0.45),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRegisteredFaceAvatar() {
+    final hasPhoto = _faceImageUrl != null && _faceImageUrl!.isNotEmpty;
+
+    final inner = hasPhoto
+        ? Image.network(
+            _faceImageUrl!,
+            width: _avatarSize,
+            height: _avatarSize,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                width: _avatarSize,
+                height: _avatarSize,
+                color: AppTheme.backgroundDark,
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: AppTheme.primary.withValues(alpha: 0.7),
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => _faceAvatarPlaceholder(),
+          )
+        : _faceAvatarPlaceholder();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: _avatarSize + 4,
+          height: _avatarSize + 4,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(26),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppTheme.primary.withValues(alpha: 0.35),
+                AppTheme.primary.withValues(alpha: 0.08),
               ],
             ),
-        ],
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primary.withValues(alpha: 0.12),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: inner,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.verified_rounded,
+              size: 15,
+              color: AppTheme.success.withValues(alpha: 0.95),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Registered',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary.withValues(alpha: 0.9),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _faceAvatarPlaceholder() {
+    return Container(
+      width: _avatarSize,
+      height: _avatarSize,
+      color: AppTheme.backgroundDark,
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.face_rounded,
+        size: 44,
+        color: AppTheme.textSecondary.withValues(alpha: 0.45),
       ),
     );
   }
@@ -555,12 +898,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         const Text(
           'Attendance History',
           style: TextStyle(
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: FontWeight.bold,
             color: AppTheme.text,
           ),
         ),
-        const SizedBox(height: AppTheme.spacingMD),
+        const SizedBox(height: AppTheme.spacingSM),
         
         // Filter Pills
         _buildFilterPills(),
@@ -684,59 +1027,445 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  /// Only non-empty http(s) URLs; everything else shows the placeholder thumb/modal.
+  String? _safeAttendanceImageUrl(dynamic raw) {
+    if (raw == null) return null;
+    final s = raw is String ? raw.trim() : raw.toString().trim();
+    if (s.isEmpty) return null;
+    final uri = Uri.tryParse(s);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      return null;
+    }
+    return s;
+  }
+
   Widget _buildHistoryRecordCard(Map<String, dynamic> record) {
     final isCheckIn = record['type'] == 'check_in';
     final timestamp = DateTime.parse(record['time'] as String);
-    
+    final photoUrl = _safeAttendanceImageUrl(record['photoUrl']);
+    final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
+    final typeLabel = isCheckIn ? 'Check-in' : 'Check-out';
+
     return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingMD),
       decoration: BoxDecoration(
         color: AppTheme.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusBase),
         border: Border.all(color: AppTheme.borderLight, width: 0.5),
         boxShadow: AppTheme.shadowSM,
       ),
-      child: Row(
-        children: [
-          // Status Badge
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: isCheckIn ? AppTheme.successLight : AppTheme.warningLight,
-              borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-            ),
-            child: Center(
-              child: Text(
-                isCheckIn ? 'IN' : 'OUT',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: isCheckIn ? AppTheme.success : AppTheme.warning,
-                ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+        child: Material(
+          color: AppTheme.white,
+          child: InkWell(
+            onTap: () => _showAttendanceDetailModal(context, record),
+            splashColor: AppTheme.primary.withValues(alpha: 0.06),
+            highlightColor: AppTheme.primary.withValues(alpha: 0.04),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppTheme.spacingMD,
+                vertical: 10,
+              ),
+              child: Row(
+                children: [
+                  _historyThumbnail(photoUrl, isCheckIn, size: 50),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatDate(timestamp),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.text,
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              _formatTime(timestamp),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.textSecondary.withValues(alpha: 0.92),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: accent.withValues(alpha: 0.28),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Text(
+                                typeLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.15,
+                                  color: accent.withValues(alpha: 0.95),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 22,
+                    color: AppTheme.textSecondary.withValues(alpha: 0.35),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(width: AppTheme.spacingMD),
-          // Date and Time
+        ),
+      ),
+    );
+  }
+
+  /// Compact square thumb for list rows (no IN/OUT overlay). [photoUrl] must be pre-validated.
+  Widget _historyThumbnail(String? photoUrl, bool isCheckIn, {required double size}) {
+    final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
+    if (photoUrl != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Image.network(
+            photoUrl,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return ColoredBox(
+                color: AppTheme.backgroundDark,
+                child: Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accent.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => ColoredBox(
+              color: accent.withValues(alpha: 0.08),
+              child: Icon(
+                Icons.hide_image_outlined,
+                size: size * 0.42,
+                color: AppTheme.textSecondary.withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: accent.withValues(alpha: 0.2),
+          width: 0.5,
+        ),
+      ),
+      child: Icon(
+        isCheckIn ? Icons.login_rounded : Icons.logout_rounded,
+        size: size * 0.44,
+        color: accent.withValues(alpha: 0.75),
+      ),
+    );
+  }
+
+  void _showAttendanceDetailModal(
+    BuildContext context,
+    Map<String, dynamic> record,
+  ) {
+    final isCheckIn = record['type'] == 'check_in';
+    final timestamp = DateTime.parse(record['time'] as String);
+    final photoUrl = _safeAttendanceImageUrl(record['photoUrl']);
+    final rawConf = record['confidence'];
+    double? confidence;
+    if (rawConf is num) confidence = rawConf.toDouble();
+
+    final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
+    final typeLabel = isCheckIn ? 'Check-in' : 'Check-out';
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewPadding.bottom;
+        final safeBottom = MediaQuery.of(ctx).padding.bottom;
+        return Padding(
+          padding: EdgeInsets.only(
+            left: AppTheme.spacingSM,
+            right: AppTheme.spacingSM,
+            bottom: bottomInset > 0 ? 0 : AppTheme.spacingSM,
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
+            ),
+            decoration: BoxDecoration(
+              color: AppTheme.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppTheme.radiusLG),
+              ),
+              boxShadow: AppTheme.shadowLG,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 6),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.borderLight,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppTheme.spacingLG,
+                      AppTheme.spacingSM,
+                      AppTheme.spacingLG,
+                      AppTheme.spacingMD,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Attendance details',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.text,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: AppTheme.spacingMD),
+                        if (photoUrl != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            child: AspectRatio(
+                              aspectRatio: 4 / 3,
+                              child: Image.network(
+                                photoUrl,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.medium,
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return ColoredBox(
+                                    color: AppTheme.backgroundDark,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: accent.withValues(alpha: 0.8),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                errorBuilder: (context, error, stackTrace) =>
+                                    ColoredBox(
+                                  color: AppTheme.backgroundDark,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(AppTheme.spacingLG),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.hide_image_outlined,
+                                          size: 44,
+                                          color: AppTheme.textSecondary
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                        const SizedBox(height: AppTheme.spacingSM),
+                                        Text(
+                                          "Couldn't load photo",
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppTheme.textSecondary
+                                                .withValues(alpha: 0.9),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Check your connection or Storage access.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppTheme.textSecondary
+                                                .withValues(alpha: 0.65),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppTheme.spacingLG),
+                        ] else ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppTheme.spacingXL,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.backgroundDark,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusBase),
+                              border: Border.all(color: AppTheme.borderLight),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.photo_camera_outlined,
+                                  size: 40,
+                                  color: AppTheme.textSecondary
+                                      .withValues(alpha: 0.45),
+                                ),
+                                const SizedBox(height: AppTheme.spacingSM),
+                                Text(
+                                  'No verification photo for this record',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppTheme.textSecondary
+                                        .withValues(alpha: 0.85),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppTheme.spacingLG),
+                        ],
+                        _detailTile(
+                          icon: Icons.label_outline_rounded,
+                          label: 'Type',
+                          value: typeLabel,
+                          valueColor: accent,
+                        ),
+                        _detailTile(
+                          icon: Icons.calendar_today_outlined,
+                          label: 'Date',
+                          value: _formatDate(timestamp),
+                        ),
+                        _detailTile(
+                          icon: Icons.schedule_rounded,
+                          label: 'Time',
+                          value: _formatTime(timestamp),
+                        ),
+                        if (confidence != null)
+                          _detailTile(
+                            icon: Icons.verified_user_outlined,
+                            label: 'Match confidence',
+                            value: _formatConfidenceLabel(confidence),
+                          ),
+                        const SizedBox(height: AppTheme.spacingLG),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.primary,
+                              foregroundColor: AppTheme.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(AppTheme.radiusBase),
+                              ),
+                            ),
+                            child: const Text(
+                              'Done',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 8 + safeBottom),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTheme.spacingMD),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: AppTheme.textSecondary.withValues(alpha: 0.75),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _formatDate(timestamp),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.text,
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textSecondary.withValues(alpha: 0.9),
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _formatTime(timestamp),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textSecondary,
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: valueColor ?? AppTheme.text,
+                    height: 1.25,
                   ),
                 ),
               ],
@@ -745,6 +1474,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ],
       ),
     );
+  }
+
+  String _formatConfidenceLabel(double confidence) {
+    if (confidence >= 0 && confidence <= 1) {
+      return '${(confidence * 100).clamp(0, 100).toStringAsFixed(0)}%';
+    }
+    return confidence.toStringAsFixed(2);
   }
 
   String _formatDate(DateTime dateTime) {
@@ -779,7 +1515,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: AppTheme.primary,
-          padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+          padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingSM),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppTheme.radiusBase),
           ),
@@ -831,9 +1567,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: backgroundColor,
               disabledBackgroundColor: backgroundColor.withValues(alpha: 0.5),
-              padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                borderRadius: BorderRadius.circular(14),
               ),
               elevation: 0,
             ),
@@ -841,52 +1577,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ),
         if (!_isEligible && !_isCheckingEligibility && _eligibilityMessage != null)
           Padding(
-            padding: const EdgeInsets.only(top: 8.0),
+            padding: const EdgeInsets.only(top: 10),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.error_outline, size: 14, color: AppTheme.error),
-                const SizedBox(width: 4),
-                Flexible(
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(Icons.error_outline, size: 15, color: AppTheme.error),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
                   child: Text(
                     _eligibilityMessage!,
                     style: const TextStyle(
                       color: AppTheme.error,
-                      fontSize: 12,
+                      fontSize: 12.5,
+                      height: 1.35,
                       fontWeight: FontWeight.w500,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildReRegisterButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: _handleRegisterFace,
-        icon: const Icon(Icons.refresh, size: 18, color: AppTheme.textSecondary),
-        label: const Text(
-          'Re-register Face',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: AppTheme.textSecondary,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-          ),
-          side: const BorderSide(color: AppTheme.borderLight, width: 1),
-        ),
-      ),
     );
   }
 }

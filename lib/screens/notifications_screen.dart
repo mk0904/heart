@@ -6,6 +6,7 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/notification_service.dart';
 import 'notification_detail_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -128,7 +129,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading notifications: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -189,7 +190,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to mark as read: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }

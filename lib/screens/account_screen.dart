@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
 import 'support_screen.dart';
@@ -10,6 +9,7 @@ import 'contact_us_screen.dart';
 import 'delete_account_screen.dart';
 import 'edit_profile_screen.dart';
 import 'welcome_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -125,46 +125,25 @@ class _AccountScreenState extends State<AccountScreen> {
       decoration: const BoxDecoration(
         color: Colors.white,
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Account',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.text,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: AppTheme.spacingXS),
-              const Text(
-                'Manage your profile and settings',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          IconButton(
-            onPressed: () => _handleShareApp(context),
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryLight,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.share,
-                color: AppTheme.primary,
-                size: 20,
-              ),
+          const Text(
+            'Account',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.text,
+              letterSpacing: -0.5,
             ),
-            tooltip: 'Share App',
+          ),
+          const SizedBox(height: AppTheme.spacingXS),
+          const Text(
+            'Manage your profile and settings',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppTheme.textSecondary,
+            ),
           ),
         ],
       ),
@@ -368,12 +347,6 @@ class _AccountScreenState extends State<AccountScreen> {
         },
       ),
       _QuickAction(
-        id: 'share',
-        label: 'Share the App',
-        icon: Icons.share,
-        onTap: () => _handleShareApp(context),
-      ),
-      _QuickAction(
         id: 'contact',
         label: 'Contact Us',
         icon: Icons.phone,
@@ -552,26 +525,6 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
-  void _handleShareApp(BuildContext context) async {
-    final box = context.findRenderObject() as RenderBox?;
-    try {
-      await Share.share(
-        'Check out HEART Nagaland - The official app for college staff in Nagaland.\n\nDownload it from:\nAndroid: https://play.google.com/store/apps/details?id=com.mk2004.heartnagaland\niOS: https://apps.apple.com/us/app/heart-nagaland/id6752921004',
-        subject: 'Share HEART Nagaland',
-        sharePositionOrigin: box != null ? box.localToGlobal(Offset.zero) & box.size : null,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sharing: $e'),
-            backgroundColor: AppTheme.error,
-          ),
-        );
-      }
-    }
-  }
-
   void _handleSignOut(BuildContext context) {
     showDialog(
       context: context,
@@ -624,7 +577,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Error signing out: $e'),
+                      content: Text(UserFriendlyErrors.message(e)),
                       backgroundColor: AppTheme.error,
                     ),
                   );

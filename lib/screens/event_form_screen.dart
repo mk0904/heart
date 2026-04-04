@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firebase_storage_service.dart';
+import '../utils/user_friendly_errors.dart';
 
 class EventFormScreen extends StatefulWidget {
   final Map<String, dynamic>? event;
@@ -157,7 +158,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking images: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -348,7 +349,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save event: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     } finally {

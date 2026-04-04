@@ -1,8 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firestore_service.dart';
+import '../utils/user_friendly_errors.dart';
+import 'ticket_detail_screen.dart';
 
 class SupportScreen extends StatefulWidget {
   const SupportScreen({super.key});
@@ -93,6 +96,7 @@ class _SupportScreenState extends State<SupportScreen> {
         'status': 'open', // open, in-progress, resolved, closed
         'createdAt': DateTime.now().toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
+        'lastMessageAt': FieldValue.serverTimestamp(),
       };
 
       await _firestoreService.addTicket(ticketData);
@@ -128,7 +132,7 @@ class _SupportScreenState extends State<SupportScreen> {
               children: [
                 const Icon(Icons.error_outline, color: AppTheme.white),
                 const SizedBox(width: AppTheme.spacingSM),
-                Expanded(child: Text('Error submitting ticket: $e')),
+                Expanded(child: Text(UserFriendlyErrors.message(e))),
               ],
             ),
             backgroundColor: AppTheme.error,
@@ -643,7 +647,7 @@ class _SupportScreenState extends State<SupportScreen> {
     
     Color statusColor;
     String statusText;
-    switch (status.toLowerCase()) {
+    switch (status.toString().toLowerCase()) {
       case 'open':
         statusColor = AppTheme.warning;
         statusText = 'Open';
@@ -665,99 +669,134 @@ class _SupportScreenState extends State<SupportScreen> {
         statusText = status;
     }
 
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingMD),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          final id = ticket['id']?.toString();
+          if (id == null || id.isEmpty) return;
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => TicketDetailScreen(ticket: ticket),
+            ),
+          );
+        },
         borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-        border: Border.all(color: AppTheme.borderLight, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        child: Container(
+          padding: const EdgeInsets.all(AppTheme.spacingMD),
+          decoration: BoxDecoration(
+            color: AppTheme.white,
+            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+            border: Border.all(color: AppTheme.borderLight, width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Type badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingSM,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: type == 'feedback' 
-                      ? AppTheme.secondary.withValues(alpha: 0.1)
-                      : AppTheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSM),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      type == 'feedback' ? Icons.feedback_outlined : Icons.support_agent_outlined,
-                      size: 12,
-                      color: type == 'feedback' ? AppTheme.secondary : AppTheme.primary,
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppTheme.spacingSM,
+                      vertical: 4,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      type.toUpperCase(),
+                    decoration: BoxDecoration(
+                      color: type == 'feedback'
+                          ? AppTheme.secondary.withValues(alpha: 0.1)
+                          : AppTheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          type == 'feedback' ? Icons.feedback_outlined : Icons.support_agent_outlined,
+                          size: 12,
+                          color: type == 'feedback' ? AppTheme.secondary : AppTheme.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          type.toString().toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: type == 'feedback' ? AppTheme.secondary : AppTheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.spacingSM),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppTheme.spacingSM,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSM),
+                      border: Border.all(color: statusColor, width: 1),
+                    ),
+                    child: Text(
+                      statusText,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
-                        color: type == 'feedback' ? AppTheme.secondary : AppTheme.primary,
+                        color: statusColor,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppTheme.spacingSM),
-              // Status badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingSM,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSM),
-                  border: Border.all(color: statusColor, width: 1),
-                ),
-                child: Text(
-                  statusText,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
                   ),
+                  const Spacer(),
+                  Text(
+                    _formatTicketDate(createdAt),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppTheme.spacingSM),
+              Text(
+                message.length > 150 ? '${message.substring(0, 150)}...' : message,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.text,
+                  height: 1.4,
                 ),
               ),
-              const Spacer(),
-              // Date
-              Text(
-                _formatTicketDate(createdAt),
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textSecondary,
-                ),
+              const SizedBox(height: AppTheme.spacingSM),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'Open conversation',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Icon(Icons.chat_bubble_outline, size: 14, color: AppTheme.primary),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: AppTheme.spacingSM),
-          Text(
-            message.length > 150 ? '${message.substring(0, 150)}...' : message,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppTheme.text,
-              height: 1.4,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  String _formatTicketDate(String dateStr) {
+  String _formatTicketDate(dynamic dateVal) {
     try {
-      final date = DateTime.parse(dateStr);
+      final DateTime date;
+      if (dateVal is Timestamp) {
+        date = dateVal.toDate();
+      } else if (dateVal is String) {
+        date = DateTime.parse(dateVal);
+      } else {
+        return '';
+      }
       final now = DateTime.now();
       final difference = now.difference(date);
 

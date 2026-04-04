@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/notification_service.dart';
+import '../utils/user_friendly_errors.dart';
 
 class NotificationDetailScreen extends StatefulWidget {
   final Map<String, dynamic> notification;
@@ -202,7 +203,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to mark as read: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }

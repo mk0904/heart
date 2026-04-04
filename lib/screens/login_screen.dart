@@ -5,6 +5,7 @@ import '../services/firebase_auth_service.dart';
 import '../navigation/main_tab_navigator.dart';
 import 'signup_screen.dart';
 import 'reset_password_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -36,21 +37,22 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
-      await _authService.signIn(
+      final userProfile = await _authService.signIn(
         _emailController.text.trim(),
         _passwordController.text,
       );
 
       if (mounted) {
+        final isActive = userProfile.active ?? true;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MainTabNavigator()),
+          MaterialPageRoute(builder: (context) => MainTabNavigator(isActive: isActive)),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     } finally {

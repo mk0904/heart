@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../utils/user_friendly_errors.dart';
 
 class FirebaseStorageService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -8,13 +9,17 @@ class FirebaseStorageService {
   /// [file] - the local file to upload
   /// [path] - storage path (e.g. 'projects/submissions/abc123/1234567890_0.jpg')
   Future<String> uploadFile(File file, String path) async {
-    final ref = _storage.ref().child(path);
-    final contentType = _getContentType(file.path);
-    await ref.putFile(
-      file,
-      SettableMetadata(contentType: contentType),
-    );
-    return ref.getDownloadURL();
+    try {
+      final ref = _storage.ref().child(path);
+      final contentType = _getContentType(file.path);
+      await ref.putFile(
+        file,
+        SettableMetadata(contentType: contentType),
+      );
+      return ref.getDownloadURL();
+    } catch (e) {
+      throw Exception(UserFriendlyErrors.message(e));
+    }
   }
 
   String _getContentType(String path) {
@@ -80,6 +85,24 @@ class FirebaseStorageService {
   Future<String> uploadProfileImage(File file, String userId) async {
     final ext = _getImageExtension(file.path);
     final path = 'users/$userId/profile$ext';
+    return uploadFile(file, path);
+  }
+
+  /// Cropped face used at registration (reference photo for attendance UI).
+  Future<String> uploadRegisteredFaceImage(File file, String userId) async {
+    final path = 'users/$userId/face_registration.jpg';
+    return uploadFile(file, path);
+  }
+
+  /// Snapshot from check-in / check-out (Android native camera flow).
+  Future<String> uploadAttendanceVerificationImage(
+    File file,
+    String userId,
+    String dateYyyyMmDd,
+    String type, // check_in | check_out
+  ) async {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = 'users/$userId/attendance/${dateYyyyMmDd}_${type}_$ts.jpg';
     return uploadFile(file, path);
   }
 }

@@ -113,7 +113,8 @@ class _MyAppState extends State<MyApp> {
         setState(() {
           // If user is logged in via Firebase Auth, don't kick them to login
           if (FirebaseAuth.instance.currentUser != null) {
-            _initialScreen = const MainTabNavigator();
+            // Assume inactive by default if fetch failed, they can pull to refresh
+            _initialScreen = const MainTabNavigator(isActive: false);
           } else {
             _initialScreen = const WelcomeScreen();
           }

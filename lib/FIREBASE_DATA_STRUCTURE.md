@@ -15,7 +15,6 @@ This document explains how your Firebase data is structured and how to use it in
   'role': 'principal',
   'college': 'kjtWPTaCZzbxN3jT3nO9', // This is the collegeId (string)
   'active': true,
-  'status': 'Active',
   'createdOn': '2026-01-29T05:31:17.026Z', // ISO string
   'updatedAt': Timestamp,
   'profileCompleted': true,

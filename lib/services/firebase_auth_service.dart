@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_profile.dart';
+import '../utils/user_friendly_errors.dart';
 
 class FirebaseAuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -45,7 +46,6 @@ class FirebaseAuthService {
         collegeId: collegeIdValue,
         createdOn: DateTime.now().toIso8601String(),
         active: false,
-        status: 'Active',
         profileCompleted: false,
       );
 
@@ -63,7 +63,7 @@ class FirebaseAuthService {
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
     } catch (e) {
-      throw Exception('Failed to sign up: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -99,7 +99,7 @@ class FirebaseAuthService {
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
     } catch (e) {
-      throw Exception('Failed to sign in: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -108,7 +108,7 @@ class FirebaseAuthService {
     try {
       await _auth.signOut();
     } catch (e) {
-      throw Exception('Failed to sign out: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -154,7 +154,7 @@ class FirebaseAuthService {
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
     } catch (e) {
-      throw Exception('Failed to reset password: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -185,7 +185,7 @@ class FirebaseAuthService {
         message = 'Network error. Please check your connection.';
         break;
       default:
-        message = e.message ?? message;
+        message = UserFriendlyErrors.defaultMessage;
     }
 
     return Exception(message);

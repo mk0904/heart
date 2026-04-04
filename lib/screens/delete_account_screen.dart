@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
 import 'welcome_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class DeleteAccountScreen extends StatefulWidget {
   const DeleteAccountScreen({super.key});
@@ -58,7 +59,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting account: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     } finally {

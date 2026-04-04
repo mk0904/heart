@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_profile.dart';
+import '../utils/user_friendly_errors.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -17,7 +18,7 @@ class FirestoreService {
       return UserProfile.fromFirestore(data, doc.id);
     } catch (e) {
       debugPrint('Error getting user: $e');
-      throw Exception('Failed to get user: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -40,7 +41,7 @@ class FirestoreService {
           .toList();
     } catch (e) {
       debugPrint('Error getting users: $e');
-      throw Exception('Failed to get users: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -67,7 +68,7 @@ class FirestoreService {
       await _firestore.collection('users').doc(userId).update(data);
     } catch (e) {
       debugPrint('Error updating user: $e');
-      throw Exception('Failed to update user: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -95,7 +96,7 @@ class FirestoreService {
           })
           .toList();
     } catch (e) {
-      throw Exception('Failed to get projects: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -124,7 +125,7 @@ class FirestoreService {
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
-      throw Exception('Failed to get project: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -135,7 +136,7 @@ class FirestoreService {
         'submissionsCount': FieldValue.increment(1),
       });
     } catch (e) {
-      throw Exception('Failed to update project: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -193,7 +194,7 @@ class FirestoreService {
       
       return submissions;
     } catch (e) {
-      throw Exception('Failed to get submissions: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
   
@@ -264,7 +265,7 @@ class FirestoreService {
       
       return docRef.id;
     } catch (e) {
-      throw Exception('Failed to add submission: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -273,7 +274,7 @@ class FirestoreService {
     try {
       await _firestore.collection('submissions').doc(submissionId).update(data);
     } catch (e) {
-      throw Exception('Failed to update submission: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -363,7 +364,7 @@ class FirestoreService {
 
       return list;
     } catch (e) {
-      throw Exception('Failed to get circulars: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -452,7 +453,7 @@ class FirestoreService {
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
-      throw Exception('Failed to get circular: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -502,7 +503,7 @@ class FirestoreService {
           })
           .toList();
     } catch (e) {
-      throw Exception('Failed to get events: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -578,7 +579,7 @@ class FirestoreService {
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
-      throw Exception('Failed to get event: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -593,7 +594,7 @@ class FirestoreService {
         return docRef.id;
       }
     } catch (e) {
-      throw Exception('Failed to save event: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -649,7 +650,7 @@ class FirestoreService {
         };
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get notifications: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -704,7 +705,7 @@ class FirestoreService {
       
       return notifications;
     } catch (e) {
-      throw Exception('Failed to get notifications: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -803,7 +804,7 @@ class FirestoreService {
         }
       }
     } catch (e) {
-      throw Exception('Failed to mark notification as read: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -832,7 +833,7 @@ class FirestoreService {
       
       return count;
     } catch (e) {
-      throw Exception('Failed to get unread count: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -847,7 +848,7 @@ class FirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      throw Exception('Failed to update notification: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -873,7 +874,7 @@ class FirestoreService {
         'responses': responses,
       });
     } catch (e) {
-      throw Exception('Failed to update invitation response: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -890,7 +891,7 @@ class FirestoreService {
           })
           .toList();
     } catch (e) {
-      throw Exception('Failed to get colleges: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -903,7 +904,7 @@ class FirestoreService {
       if (data == null) return null;
       return {'id': doc.id, ...data};
     } catch (e) {
-      throw Exception('Failed to get college: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -953,7 +954,7 @@ class FirestoreService {
 
       return submissions;
     } catch (e) {
-      throw Exception('Failed to get enrollment submissions: ${e.toString()}');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -963,7 +964,7 @@ class FirestoreService {
       final docRef = await _firestore.collection('enrollmentData').add(submissionData);
       return docRef.id;
     } catch (e) {
-      throw Exception('Failed to add enrollment submission: $e');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -971,8 +972,22 @@ class FirestoreService {
     try {
       await _firestore.collection('enrollmentData').doc(submissionId).update(updates);
     } catch (e) {
-      throw Exception('Failed to update enrollment submission: $e');
+      throw Exception(UserFriendlyErrors.message(e));
     }
+  }
+
+  /// Millis for sorting tickets (ISO string, [Timestamp], or null).
+  static int ticketDateToMillis(dynamic v) {
+    if (v == null) return 0;
+    if (v is Timestamp) return v.millisecondsSinceEpoch;
+    if (v is String) {
+      try {
+        return DateTime.parse(v).millisecondsSinceEpoch;
+      } catch (_) {
+        return 0;
+      }
+    }
+    return 0;
   }
 
   // Tickets (Support/Feedback)
@@ -981,7 +996,7 @@ class FirestoreService {
       final docRef = await _firestore.collection('tickets').add(ticketData);
       return docRef.id;
     } catch (e) {
-      throw Exception('Failed to add ticket: $e');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -998,16 +1013,71 @@ class FirestoreService {
         return data;
       }).toList();
 
-      // Sort by createdAt in memory (newest first)
       tickets.sort((a, b) {
-        final dateA = a['createdAt'] ?? '';
-        final dateB = b['createdAt'] ?? '';
-        return dateB.compareTo(dateA);
+        final ta = ticketDateToMillis(a['createdAt']);
+        final tb = ticketDateToMillis(b['createdAt']);
+        return tb.compareTo(ta);
       });
 
       return tickets;
     } catch (e) {
-      throw Exception('Failed to fetch user tickets: $e');
+      throw Exception(UserFriendlyErrors.message(e));
+    }
+  }
+
+  /// Live updates: `tickets/{ticketId}/messages` ordered by `createdAt` ascending.
+  /// Requires a single-field index on `createdAt` in that subcollection (often auto-created).
+  Stream<List<Map<String, dynamic>>> watchTicketMessages(String ticketId) {
+    return _firestore
+        .collection('tickets')
+        .doc(ticketId)
+        .collection('messages')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snap) {
+      return snap.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    });
+  }
+
+  /// User reply in thread (`senderRole: user`). Also updates `lastMessageAt` / `updatedAt` on the ticket.
+  Future<void> addUserTicketMessage({
+    required String ticketId,
+    required String senderId,
+    required String senderName,
+    required String text,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw Exception('Message cannot be empty');
+    }
+    if (trimmed.length > 4000) {
+      throw Exception('Message is too long (max 4000 characters)');
+    }
+    try {
+      final batch = _firestore.batch();
+      final msgRef = _firestore
+          .collection('tickets')
+          .doc(ticketId)
+          .collection('messages')
+          .doc();
+      batch.set(msgRef, {
+        'senderRole': 'user',
+        'senderId': senderId,
+        'senderName': senderName,
+        'text': trimmed,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      batch.update(_firestore.collection('tickets').doc(ticketId), {
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
+    } catch (e) {
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 
@@ -1036,7 +1106,7 @@ class FirestoreService {
       
       return courses;
     } catch (e) {
-      throw Exception('Failed to fetch courses: $e');
+      throw Exception(UserFriendlyErrors.message(e));
     }
   }
 }

@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../utils/user_friendly_errors.dart';
 
 class InvitationsScreen extends StatefulWidget {
   const InvitationsScreen({super.key});
@@ -166,7 +167,7 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
       _skeletonAnimationController.stop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading invitations: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -208,7 +209,7 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to accept invitation: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -250,7 +251,7 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to decline invitation: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -303,75 +304,71 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.white,
+        statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
         statusBarBrightness: Brightness.light,
         systemNavigationBarColor: Colors.white,
         systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
       ),
-      child: SafeArea(
-        child: Scaffold(
-          backgroundColor: AppTheme.white,
-          body: Stack(
-          children: [
-            Column(
-              children: [
-                // Header
-                _buildHeader(),
-                
-                // Tabs
-                _buildTabs(),
-                
-                // Content
-                Expanded(
-                  child: CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      // Search
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppTheme.spacingLG),
-                          child: _buildSearchBar(),
+      child: Scaffold(
+        backgroundColor: AppTheme.white,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  _buildHeader(),
+                  _buildTabs(),
+                  Expanded(
+                    child: CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        // Search
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppTheme.spacingLG),
+                            child: _buildSearchBar(),
+                          ),
                         ),
-                      ),
-                      
-                      // Invitations List
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
-                        sliver: _loading
-                            ? SliverToBoxAdapter(
-                                child: _buildSkeleton(),
-                              )
-                            : _filteredInvitations.isEmpty
-                                ? SliverToBoxAdapter(
-                                    child: _buildEmptyState(),
-                                  )
-                                : SliverList(
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, index) {
-                                        final invitation = _filteredInvitations[index];
-                                        final isLast = index == _filteredInvitations.length - 1;
-                                        return _buildInvitationCard(invitation, isLast);
-                                      },
-                                      childCount: _filteredInvitations.length,
+
+                        // Invitations List
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
+                          sliver: _loading
+                              ? SliverToBoxAdapter(
+                                  child: _buildSkeleton(),
+                                )
+                              : _filteredInvitations.isEmpty
+                                  ? SliverToBoxAdapter(
+                                      child: _buildEmptyState(),
+                                    )
+                                  : SliverList(
+                                      delegate: SliverChildBuilderDelegate(
+                                        (context, index) {
+                                          final invitation = _filteredInvitations[index];
+                                          final isLast = index == _filteredInvitations.length - 1;
+                                          return _buildInvitationCard(invitation, isLast);
+                                        },
+                                        childCount: _filteredInvitations.length,
+                                      ),
                                     ),
-                                  ),
-                      ),
-                      
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 90),
-                      ),
-                    ],
+                        ),
+
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 90),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            
-            // Info Modal
-            if (_showInfoModal && _selectedInvitation != null) _buildInfoModal(),
-          ],
+                ],
+              ),
+
+              // Info Modal
+              if (_showInfoModal && _selectedInvitation != null) _buildInfoModal(),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -382,11 +379,8 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
         horizontal: AppTheme.spacingLG,
         vertical: AppTheme.spacingBase,
       ),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.borderLight, width: 0.5),
-        ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
       ),
       child: Row(
         children: [
@@ -406,34 +400,39 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
               ),
             ),
           ),
-          AnimatedOpacity(
-            opacity: _showSearchIcon ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 200),
-            child: AnimatedScale(
-              scale: _showSearchIcon ? 1.0 : 0.8,
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: AnimatedOpacity(
+              opacity: _showSearchIcon ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 200),
-              child: GestureDetector(
-                onTap: () {
-                  _scrollController.animateTo(
-                    0,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOut,
-                  );
-                  Future.delayed(const Duration(milliseconds: 350), () {
-                    FocusScope.of(context).requestFocus(FocusNode());
-                  });
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppTheme.backgroundDark,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.search,
-                    size: 20,
-                    color: AppTheme.text,
+              child: AnimatedScale(
+                scale: _showSearchIcon ? 1.0 : 0.8,
+                duration: const Duration(milliseconds: 200),
+                child: GestureDetector(
+                  onTap: () {
+                    _scrollController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                    Future.delayed(const Duration(milliseconds: 350), () {
+                      FocusScope.of(context).requestFocus(FocusNode());
+                    });
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    margin: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.backgroundDark,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.search,
+                      size: 20,
+                      color: AppTheme.text,
+                    ),
                   ),
                 ),
               ),
@@ -446,46 +445,17 @@ class _InvitationsScreenState extends State<InvitationsScreen> with TickerProvid
 
   Widget _buildTabs() {
     return Container(
-      color: AppTheme.background,
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildTab('Pending', 0),
-          ),
-          const SizedBox(width: AppTheme.spacingSM),
-          Expanded(
-            child: _buildTab('Older', 1),
-          ),
+      color: Colors.white,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: AppTheme.primary,
+        unselectedLabelColor: AppTheme.textSecondary,
+        indicatorColor: AppTheme.primary,
+        indicatorWeight: 3,
+        tabs: const [
+          Tab(text: 'Pending'),
+          Tab(text: 'Older'),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTab(String label, int index) {
-    final isActive = _tabController.index == index;
-    return GestureDetector(
-      onTap: () {
-        _tabController.animateTo(index);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: AppTheme.spacingSM,
-          horizontal: AppTheme.spacingLG,
-        ),
-        decoration: BoxDecoration(
-          color: isActive ? AppTheme.primary : AppTheme.backgroundDark,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-            color: isActive ? AppTheme.white : AppTheme.text,
-          ),
-        ),
       ),
     );
   }

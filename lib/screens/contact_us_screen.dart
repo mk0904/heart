@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../utils/user_friendly_errors.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -74,7 +75,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error opening phone: $e'),
+            content: Text(UserFriendlyErrors.message(e)),
             backgroundColor: AppTheme.error,
           ),
         );

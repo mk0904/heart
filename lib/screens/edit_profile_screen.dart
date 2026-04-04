@@ -7,7 +7,9 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../models/user_profile.dart';
 import '../services/firebase_storage_service.dart';
+import '../navigation/main_tab_navigator.dart';
 import 'welcome_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final bool isCompleteProfile;
@@ -24,6 +26,16 @@ class EditProfileScreen extends StatefulWidget {
 
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  /// Same values as signup (`users.role` in Firestore).
+  static const List<Map<String, String>> _kRoleOptions = [
+    {'label': 'Principal', 'value': 'principal'},
+    {'label': 'Vice-Principal', 'value': 'vice-principal'},
+    {'label': 'Teaching', 'value': 'teaching'},
+    {'label': 'Non-Teaching', 'value': 'non-teaching'},
+    {'label': 'Ministerial Staff', 'value': 'ministerial-staff'},
+    {'label': 'Officers', 'value': 'officers'},
+  ];
+
   final _formKey = GlobalKey<FormState>();
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuthService _authService = FirebaseAuthService();
@@ -34,6 +46,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _payBandController = TextEditingController();
   
+  String _selectedRole = 'teaching';
   String? _employmentType;
   bool? _govtQuarter;
   DateTime? _dateOfBirth;
@@ -47,23 +60,148 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   File? _selectedImage;
   bool _uploadingPhoto = false;
   bool _isProfileIncomplete = false;
-  bool _isActive = false;
+  /// True if account was active when this screen loaded — saving will require re-activation.
+  bool _wasActiveWhenLoaded = false;
+
+  bool _loadingColleges = true;
+  List<DropdownMenuItem<String>> _collegeItems = [];
+  String? _selectedCollegeId;
 
   @override
   void initState() {
     super.initState();
+    _loadColleges();
     _loadProfile();
   }
+
+  Future<void> _loadColleges() async {
+    try {
+      final colleges = await _firestoreService.getColleges();
+      if (!mounted) return;
+      setState(() {
+        _collegeItems = colleges.map((c) {
+          return DropdownMenuItem<String>(
+            value: c['id'] as String,
+            child: Text(
+              c['name'] as String? ?? '',
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          );
+        }).toList();
+        _loadingColleges = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingColleges = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
+        );
+      }
+    }
+  }
   
+  String _coerceRoleValue(String? role) {
+    final raw = (role ?? '').trim();
+    if (raw.isEmpty) return 'teaching';
+    final lower = raw.toLowerCase();
+    for (final opt in _kRoleOptions) {
+      if (opt['value'] == lower) return opt['value']!;
+      if (opt['label']!.toLowerCase() == lower) return opt['value']!;
+    }
+    final normalized = lower.replaceAll(' ', '-');
+    for (final opt in _kRoleOptions) {
+      if (opt['value'] == normalized) return opt['value']!;
+    }
+    if (normalized.isEmpty) return 'teaching';
+    return normalized;
+  }
+
+  static const List<String> _kEmploymentChoices = ['Contractual', 'Permanent'];
+
+  /// Match dropdown item values exactly (Firestore may store different casing).
+  String? _normalizeEmploymentType(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    switch (raw.trim().toLowerCase()) {
+      case 'contractual':
+        return 'Contractual';
+      case 'permanent':
+        return 'Permanent';
+      default:
+        return raw.trim();
+    }
+  }
+
+  List<DropdownMenuItem<String>> _roleMenuItems() {
+    final items = <DropdownMenuItem<String>>[
+      for (final opt in _kRoleOptions)
+        DropdownMenuItem<String>(
+          value: opt['value']!,
+          child: Text(opt['label']!),
+        ),
+    ];
+    final known = _kRoleOptions.map((o) => o['value']!).toSet();
+    if (!known.contains(_selectedRole)) {
+      items.add(
+        DropdownMenuItem<String>(
+          value: _selectedRole,
+          child: Text(_selectedRole),
+        ),
+      );
+    }
+    return items;
+  }
+
+  List<DropdownMenuItem<String>> _collegeItemsWithSelection() {
+    final items = List<DropdownMenuItem<String>>.from(_collegeItems);
+    final known = items.map((e) => e.value).whereType<String>().toSet();
+    final id = _selectedCollegeId;
+    if (id != null && id.isNotEmpty && !known.contains(id)) {
+      items.insert(
+        0,
+        DropdownMenuItem<String>(
+          value: id,
+          child: Text(id, overflow: TextOverflow.ellipsis, maxLines: 1),
+        ),
+      );
+    }
+    return items;
+  }
+
+  List<DropdownMenuItem<String>> _employmentMenuItems() {
+    final items = <DropdownMenuItem<String>>[
+      for (final label in _kEmploymentChoices)
+        DropdownMenuItem<String>(
+          value: label,
+          child: Text(label),
+        ),
+    ];
+    if (_employmentType != null &&
+        !_kEmploymentChoices.contains(_employmentType)) {
+      items.add(
+        DropdownMenuItem<String>(
+          value: _employmentType,
+          child: Text(_employmentType!),
+        ),
+      );
+    }
+    return items;
+  }
+
   // Check if profile is incomplete
   bool _checkIfProfileIncomplete(UserProfile user) {
     // Check if profileCompleted is false
     if (user.profileCompleted == false) return true;
-    
+
+    final collegeRaw = user.collegeId ?? user.college;
+    if (collegeRaw == null || collegeRaw.toString().trim().isEmpty) {
+      return true;
+    }
+
     // Check if required fields are missing
     final phoneNumber = user.phoneNumber ?? user.phone ?? '';
     final payBand = user.payBand ?? '';
-    
+
     return phoneNumber.trim().isEmpty || payBand.trim().isEmpty;
   }
 
@@ -91,14 +229,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _nameController.text = user.name;
       _phoneController.text = user.phoneNumber ?? '';
       _payBandController.text = user.payBand ?? '';
-      _employmentType = user.employmentType;
+      _selectedRole = _coerceRoleValue(user.role);
+      _selectedCollegeId = user.collegeId ?? user.college;
+      _employmentType = _normalizeEmploymentType(user.employmentType);
       _govtQuarter = user.govtQuarter;
       _dateOfBirth = user.dateOfBirth;
       _dateOfAppointment = user.dateOfAppointment;
       _dateOfConfirmation = user.dateOfConfirmation;
       _dateOfRetirement = user.dateOfRetirement;
       _photoUrl = user.photoUrl;
-      _isActive = user.active ?? false;
+      _wasActiveWhenLoaded = user.active ?? false;
       
       // Check if profile is incomplete
       _isProfileIncomplete = _checkIfProfileIncomplete(user);
@@ -108,7 +248,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       setState(() => _loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading profile: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -180,7 +320,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -233,7 +373,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
+    if (_selectedCollegeId == null || _selectedCollegeId!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a college')),
+      );
+      return;
+    }
+
     // In complete profile mode, validate required fields
     if (widget.isCompleteProfile || _isProfileIncomplete) {
       if (_phoneController.text.trim().isEmpty) {
@@ -248,6 +395,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
         return;
       }
+    }
+
+    var shouldDeactivateAccount = false;
+    if (_wasActiveWhenLoaded) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Re-activation required'),
+          content: const Text(
+            'Your account is currently active. Saving profile changes will deactivate your account until an administrator activates it again.\n\nDo you want to continue?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.warning),
+              child: const Text('Save anyway'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) {
+        return;
+      }
+      shouldDeactivateAccount = true;
     }
 
     setState(() {
@@ -272,6 +448,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final updateData = <String, dynamic>{
         'name': _nameController.text.trim(),
         'phoneNumber': _phoneController.text.trim(),
+        'role': _selectedRole,
+        'college': _selectedCollegeId,
+        'collegeId': _selectedCollegeId,
         if (_payBandController.text.isNotEmpty) 'payBand': _payBandController.text.trim(),
         if (_employmentType != null) 'employmentType': _employmentType,
         if (_govtQuarter != null) 'govtQuarter': _govtQuarter,
@@ -282,23 +461,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'photoUrl': updatedPhotoUrl, // Always update, can be null
         'profileCompleted': true,
         'updatedAt': DateTime.now().toIso8601String(),
+        if (shouldDeactivateAccount) 'active': false,
       };
 
       await _firestoreService.updateUser(_userId!, updateData);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile updated successfully!'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text(
+              shouldDeactivateAccount
+                  ? 'Profile updated. Your account is inactive until an administrator activates it again.'
+                  : 'Profile updated successfully!',
+            ),
+            backgroundColor: shouldDeactivateAccount ? AppTheme.warning : Colors.green,
           ),
         );
-        
-        // If in complete profile mode, navigate to root to re-check everything
+
         if (widget.isCompleteProfile || _isProfileIncomplete) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+            (route) => false,
+          );
+        } else if (shouldDeactivateAccount) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MainTabNavigator(isActive: false),
+            ),
             (route) => false,
           );
         } else {
@@ -309,7 +500,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to update profile: $e'),
+            content: Text(UserFriendlyErrors.message(e)),
             backgroundColor: AppTheme.error,
           ),
         );
@@ -354,22 +545,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const SizedBox(height: AppTheme.spacingMD),
-                              if (_isActive)
+                              if (_wasActiveWhenLoaded)
                                 Container(
                                   padding: const EdgeInsets.all(AppTheme.spacingLG),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.backgroundDark,
+                                    color: AppTheme.warningLight,
                                     borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-                                    border: Border.all(color: AppTheme.borderLight, width: 1),
+                                    border: Border.all(color: AppTheme.warning.withOpacity(0.4), width: 1),
                                   ),
                                   child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: const [
-                                      Icon(Icons.lock_outline, size: 18, color: AppTheme.textSecondary),
+                                      Icon(Icons.warning_amber_rounded, size: 22, color: AppTheme.warning),
                                       SizedBox(width: AppTheme.spacingMD),
                                       Expanded(
                                         child: Text(
-                                          'Profile is active and locked. Editing is disabled.',
-                                          style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                                          'Your account is active. If you save changes, your account will become inactive until an administrator activates it again.',
+                                          style: TextStyle(fontSize: 13, color: AppTheme.text, height: 1.35),
                                         ),
                                       ),
                                     ],
@@ -397,7 +589,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _nameController,
                                 label: 'Full Name',
                                 icon: Icons.person_outline,
-                                enabled: !_isActive,
+                                enabled: true,
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Name is required';
@@ -413,7 +605,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _phoneController,
                                 label: 'Phone Number',
                                 icon: Icons.phone_outlined,
-                                enabled: !_isActive,
+                                enabled: true,
                                 keyboardType: TextInputType.phone,
                                 validator: (value) {
                                   // Required in complete profile mode or if profile is incomplete
@@ -429,27 +621,61 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               
                               const SizedBox(height: AppTheme.spacingLG),
                               
+                              // Role
+                              _buildDropdown(
+                                value: _selectedRole,
+                                label: 'Role',
+                                icon: Icons.badge_outlined,
+                                items: _roleMenuItems(),
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() => _selectedRole = value);
+                                  }
+                                },
+                                enabled: true,
+                              ),
+
+                              const SizedBox(height: AppTheme.spacingLG),
+
+                              _loadingColleges
+                                  ? const Padding(
+                                      padding: EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
+                                      child: Center(child: CircularProgressIndicator()),
+                                    )
+                                  : _buildDropdown(
+                                      fieldKey: ValueKey(
+                                        'college_${_selectedCollegeId ?? 'n'}_${_collegeItems.length}',
+                                      ),
+                                      value: _selectedCollegeId,
+                                      label: 'College',
+                                      icon: Icons.school_outlined,
+                                      items: _collegeItemsWithSelection(),
+                                      onChanged: (value) {
+                                        setState(() => _selectedCollegeId = value);
+                                      },
+                                      enabled: true,
+                                      validator: (value) {
+                                        if (value == null || value.isEmpty) {
+                                          return 'Please select a college';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+
+                              const SizedBox(height: AppTheme.spacingLG),
+
                               // Employment Type
                               _buildDropdown(
                                 value: _employmentType,
                                 label: 'Employment Type',
                                 icon: Icons.work_outline,
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: 'Contractual',
-                                    child: Text('Contractual'),
-                                  ),
-                                  const DropdownMenuItem(
-                                    value: 'Permanent',
-                                    child: Text('Permanent'),
-                                  ),
-                                ],
+                                items: _employmentMenuItems(),
                                 onChanged: (value) {
                                   setState(() {
                                     _employmentType = value;
                                   });
                                 },
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -459,7 +685,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 controller: _payBandController,
                                 label: 'Pay Band / Grade Pay',
                                 icon: Icons.account_balance_wallet_outlined,
-                                enabled: !_isActive,
+                                enabled: true,
                                 hintText: 'e.g., PB-1, PB-2',
                                 validator: (value) {
                                   // Required in complete profile mode
@@ -478,7 +704,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfBirth),
                                 icon: Icons.calendar_today_outlined,
                                 onTap: () => _selectDate('dob'),
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -489,7 +715,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfAppointment),
                                 icon: Icons.event_outlined,
                                 onTap: () => _selectDate('appointment'),
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -500,7 +726,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfConfirmation),
                                 icon: Icons.verified_outlined,
                                 onTap: () => _selectDate('confirmation'),
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -511,7 +737,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 value: _formatDate(_dateOfRetirement),
                                 icon: Icons.event_busy_outlined,
                                 onTap: () => _selectDate('retirement'),
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacingLG),
@@ -525,7 +751,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     _govtQuarter = value;
                                   });
                                 },
-                                enabled: !_isActive,
+                                enabled: true,
                               ),
                               
                               const SizedBox(height: AppTheme.spacing2XL),
@@ -534,7 +760,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
-                                  onPressed: (_saving || _uploadingPhoto || _isActive) ? null : _saveProfile,
+                                  onPressed: (_saving || _uploadingPhoto) ? null : _saveProfile,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppTheme.primary,
                                     padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingMD),
@@ -619,7 +845,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Column(
       children: [
         GestureDetector(
-          onTap: _isActive ? null : _showImageSourceDialog,
+          onTap: _showImageSourceDialog,
           child: Stack(
             children: [
               Container(
@@ -667,7 +893,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: _isActive ? AppTheme.textLight : AppTheme.primary,
+                    color: AppTheme.primary,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: Colors.white,
@@ -685,14 +911,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
         const SizedBox(height: AppTheme.spacingSM),
-        if (!_isActive)
-          Text(
-            'Change profile photo',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppTheme.textSecondary,
-            ),
+        Text(
+          'Change profile photo',
+          style: TextStyle(
+            fontSize: 12,
+            color: AppTheme.textSecondary,
           ),
+        ),
       ],
     );
   }
@@ -784,23 +1009,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildDropdown({
+    Key? fieldKey,
     required String? value,
     required String label,
     required IconData icon,
     required List<DropdownMenuItem<String>> items,
     required void Function(String?) onChanged,
     bool enabled = true,
+    String? Function(String?)? validator,
   }) {
     return DropdownButtonFormField<String>(
+      key: fieldKey,
       initialValue: value,
+      isExpanded: true,
+      selectedItemBuilder: (context) {
+        return items.map((item) {
+          final c = item.child;
+          final label = c is Text
+              ? (c.data ?? '')
+              : (item.value?.toString() ?? '');
+          return Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 15, color: AppTheme.text),
+            ),
+          );
+        }).toList();
+      },
       onChanged: enabled ? onChanged : null,
       decoration: InputDecoration(
         labelText: label,
+        isDense: true,
         labelStyle: const TextStyle(
           color: AppTheme.textSecondary,
           fontSize: 15,
         ),
         prefixIcon: Icon(icon, size: 20, color: AppTheme.textSecondary),
+        prefixIconConstraints: const BoxConstraints(minWidth: 44, maxWidth: 44),
         filled: true,
         fillColor: AppTheme.backgroundDark,
         border: OutlineInputBorder(
@@ -832,6 +1080,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         size: 20,
       ),
       borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+      validator: validator,
     );
   }
 

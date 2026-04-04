@@ -6,6 +6,7 @@ import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import 'event_detail_screen.dart';
 import 'event_form_screen.dart';
+import '../utils/user_friendly_errors.dart';
 
 class EventsScreen extends StatefulWidget {
   const EventsScreen({super.key});
@@ -142,7 +143,7 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
       _skeletonAnimationController.stop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading events: $e')),
+          SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
     }
@@ -392,36 +393,68 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
                                 ),
                               ),
                               const SizedBox(height: AppTheme.spacingSM),
-                              DropdownButtonFormField<String>(
-                                initialValue: _selectedCollege,
-                                decoration: InputDecoration(
-                                  filled: true,
-                                  fillColor: AppTheme.backgroundDark,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: AppTheme.spacingMD,
-                                    vertical: AppTheme.spacingMD,
-                                  ),
-                                ),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('All Colleges'),
-                                  ),
-                                  ..._colleges.map((college) {
-                                    return DropdownMenuItem(
-                                      value: college['id'],
-                                      child: Text(college['name'] ?? 'Unknown'),
-                                    );
-                                  }),
-                                ],
-                                onChanged: (value) {
-                                  setState(() {
-                                    _selectedCollege = value;
-                                  });
+                              Builder(
+                                builder: (context) {
+                                  final collegeDropdownItems = <DropdownMenuItem<String>>[
+                                    const DropdownMenuItem<String>(
+                                      value: null,
+                                      child: Text('All Colleges'),
+                                    ),
+                                    ..._colleges.map((college) {
+                                      return DropdownMenuItem<String>(
+                                        value: college['id'] as String?,
+                                        child: Text(
+                                          college['name'] ?? 'Unknown',
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      );
+                                    }),
+                                  ];
+                                  return DropdownButtonFormField<String>(
+                                    initialValue: _selectedCollege,
+                                    isExpanded: true,
+                                    isDense: true,
+                                    selectedItemBuilder: (context) {
+                                      return collegeDropdownItems.map((item) {
+                                        final c = item.child;
+                                        final label = c is Text
+                                            ? (c.data ?? '')
+                                            : (item.value?.toString() ?? '');
+                                        return Align(
+                                          alignment: AlignmentDirectional.centerStart,
+                                          child: Text(
+                                            label,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              color: AppTheme.text,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList();
+                                    },
+                                    decoration: InputDecoration(
+                                      filled: true,
+                                      fillColor: AppTheme.backgroundDark,
+                                      isDense: true,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: AppTheme.spacingMD,
+                                        vertical: AppTheme.spacingMD,
+                                      ),
+                                    ),
+                                    items: collegeDropdownItems,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _selectedCollege = value;
+                                      });
+                                    },
+                                  );
                                 },
                               ),
                             ],
