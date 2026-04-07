@@ -41,12 +41,13 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBY1bcCCSBGVcBgwWzRmQp6tPD6-VDycJc',
-    appId: '1:333002007969:web:a62bce954c25ce436317e0',
+    apiKey: 'AIzaSyBq1ZB13r6BV669fKUDMajeqy0YsScA23E',
+    appId: '1:333002007969:web:e3210fc1678aa4556317e0',
     messagingSenderId: '333002007969',
     projectId: 'heart-nagaland',
     authDomain: 'heart-nagaland.firebaseapp.com',
     storageBucket: 'heart-nagaland.firebasestorage.app',
+    measurementId: 'G-SVS18XDB37',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -76,11 +77,12 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyBY1bcCCSBGVcBgwWzRmQp6tPD6-VDycJc',
-    appId: '1:333002007969:web:a62bce954c25ce436317e0',
+    apiKey: 'AIzaSyBq1ZB13r6BV669fKUDMajeqy0YsScA23E',
+    appId: '1:333002007969:web:e3210fc1678aa4556317e0',
     messagingSenderId: '333002007969',
     projectId: 'heart-nagaland',
     authDomain: 'heart-nagaland.firebaseapp.com',
     storageBucket: 'heart-nagaland.firebasestorage.app',
+    measurementId: 'G-SVS18XDB37',
   );
 }

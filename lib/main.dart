@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'services/app_update_service.dart';
 import 'services/attendance_service.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
 import 'navigation/main_tab_navigator.dart';
+import 'screens/force_update_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/complete_profile_screen.dart';
 import 'theme/app_theme.dart';
@@ -58,6 +60,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   Widget? _initialScreen;
   bool _initialized = false;
+  MandatoryUpdateResult? _mandatoryUpdate;
 
   @override
   void initState() {
@@ -68,6 +71,17 @@ class _MyAppState extends State<MyApp> {
   Future<void> _initialize() async {
     final startTime = DateTime.now();
     try {
+      final updateGate = await AppUpdateService.instance.checkMandatoryUpdate();
+      if (updateGate.isRequired) {
+        if (mounted) {
+          setState(() {
+            _mandatoryUpdate = updateGate;
+            _initialized = true;
+          });
+        }
+        return;
+      }
+
       // 1. Initialize Notification Service (non-blocking)
       NotificationService().initialize().catchError((e) => debugPrint('Notification init warning: $e'));
 
@@ -135,12 +149,17 @@ class _MyAppState extends State<MyApp> {
         systemNavigationBarIconBrightness: Brightness.dark,
         systemNavigationBarDividerColor: Colors.transparent,
       ),
-      child: MaterialApp(
+        child: MaterialApp(
         title: 'HEART Nagaland',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.theme,
-        home: _initialized 
-            ? _initialScreen 
+        home: _initialized
+            ? (_mandatoryUpdate != null && _mandatoryUpdate!.isRequired
+                ? ForceUpdateScreen(
+                    message: _mandatoryUpdate!.message,
+                    storeUrl: _mandatoryUpdate!.storeUrl,
+                  )
+                : _initialScreen)
             : Scaffold(
                 backgroundColor: Colors.white,
                 body: Center(
