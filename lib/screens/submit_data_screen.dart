@@ -359,7 +359,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       }
       
       // Determine college data first
-      Map<String, dynamic>? collegeData;
+      Map<String, dynamic> collegeData;
       String collegeName = user.college ?? 'Unknown College';
 
       if (_collegeLocation != null) {
@@ -374,7 +374,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
           'latitude': _collegeLocation!['latitude'],
           'longitude': _collegeLocation!['longitude'],
         };
-      } else if (targetCollegeId != null) {
+      } else {
         // Fallback if we have ID but no full object
         final college = _colleges.firstWhere(
           (c) => c['id'] == targetCollegeId, 
@@ -418,9 +418,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
         'reviewedAt': null,
       };
 
-      if (collegeData != null) {
-        submissionData['college'] = collegeData;
-      }
+      submissionData['college'] = collegeData;
 
       if (_editingSubmissionId != null) {
         // Update existing submission

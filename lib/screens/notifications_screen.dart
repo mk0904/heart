@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../services/notification_service.dart';
 import 'notification_detail_screen.dart';
 import '../utils/user_friendly_errors.dart';
 
@@ -19,7 +18,6 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> with TickerProviderStateMixin {
   final FirestoreService _firestoreService = FirestoreService();
   final FirebaseAuthService _authService = FirebaseAuthService();
-  final NotificationService _notificationService = NotificationService();
   late TabController _tabController;
   String? _userId;
   List<Map<String, dynamic>> _notifications = [];
@@ -348,34 +346,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     );
   }
 
-  Widget _buildTab(String label, int index) {
-    final isActive = _tabController.index == index;
-    return GestureDetector(
-      onTap: () {
-        _tabController.animateTo(index);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: AppTheme.spacingSM,
-          horizontal: AppTheme.spacingLG,
-        ),
-        decoration: BoxDecoration(
-          color: isActive ? AppTheme.primary : AppTheme.backgroundDark,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-            color: isActive ? AppTheme.white : AppTheme.text,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildNotificationCard(
     Map<String, dynamic> notification,
     bool isRead,
@@ -385,7 +355,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     return GestureDetector(
       onTap: () async {
         // Navigate to detail screen
-        final result = await Navigator.push(
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => NotificationDetailScreen(notification: notification),

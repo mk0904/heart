@@ -119,7 +119,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'text': text,
         'userId': _userId!,
-        'userName': user.name ?? user.email ?? 'User',
+        'userName': user.name.isNotEmpty ? user.name : user.email,
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       };
       
@@ -264,7 +264,6 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     final message = notification['message'] ?? '';
     final attachments = notification['attachments'] as List? ?? [];
     final fileUrls = notification['fileUrls'] as List? ?? [];
-    final type = notification['type'] ?? '';
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(

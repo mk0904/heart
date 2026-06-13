@@ -1,10 +1,6 @@
-import 'dart:io' show Platform;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/app_permission_service.dart';
@@ -12,11 +8,8 @@ import '../services/attendance_service.dart';
 import '../services/cloud_face_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../theme/app_theme.dart';
-import 'attendance_webview_modal.dart';
 import 'cloud_mark_attendance_screen.dart';
 import 'cloud_register_face_screen.dart';
-import 'mark_attendance_screen.dart';
-import 'register_face_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -28,9 +21,6 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen> {
   final AttendanceService _attendanceService = AttendanceService();
 
-  /// Native camera + on-device model (Android reference app). iOS keeps webview flow.
-  bool get _useNativeAndroidAttendance => !kIsWeb && Platform.isAndroid;
-  bool get _useCloudFaceBackend => CloudFaceService.isConfigured;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final ScrollController _scrollController = ScrollController();
   bool _isEnrolled = false;
@@ -344,93 +334,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Future<Position?> _getLocation() async {
-    try {
-      final status = await Permission.locationWhenInUse.status;
-      if (!status.isGranted) {
-        final requestStatus = await Permission.locationWhenInUse.request();
-        if (!requestStatus.isGranted) return null;
-      }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-    } catch (e) {
-      debugPrint('Error getting location: $e');
-      return null;
-    }
-  }
-
   Future<void> _handleRegisterFace() async {
     final hasLocationPermission =
         await _ensureLocationPermissionForFaceRegistration();
     if (!hasLocationPermission) return;
     if (!mounted) return;
 
-    if (_useCloudFaceBackend) {
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const CloudRegisterFaceScreen(),
-        ),
-      );
-      if (result == true) {
-        await _checkEnrollmentStatus();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Face registered successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
+    if (!CloudFaceService.isConfigured) {
+      _showCloudBackendMissingMessage();
       return;
     }
-
-    if (_useNativeAndroidAttendance) {
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(builder: (context) => const RegisterFaceScreen()),
-      );
-      if (result == true) {
-        await _checkEnrollmentStatus();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Face registered successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
-      return;
-    }
-
-    final position = await _getLocation();
-    if (!mounted) return;
 
     final result = await Navigator.push<bool>(
       context,
-      PageRouteBuilder(
-        opaque: false,
-        pageBuilder: (context, _, _) => AttendanceWebViewModal(
-          flowType: WebFlowType.register,
-          position: position,
-        ),
+      MaterialPageRoute(
+        builder: (context) => const CloudRegisterFaceScreen(),
       ),
     );
-
     if (result == true) {
-      _checkEnrollmentStatus();
+      await _checkEnrollmentStatus();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -444,6 +366,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         );
       }
     }
+  }
+
+  void _showCloudBackendMissingMessage() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Face verification backend is not configured.'),
+        backgroundColor: AppTheme.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
   }
 
   Future<bool> _ensureLocationPermissionForFaceRegistration() async {
@@ -536,102 +472,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleCheckIn() async {
-    if (_useCloudFaceBackend) {
-      final result = await Navigator.push<Map<String, dynamic>>(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              const CloudMarkAttendanceScreen(isCheckIn: true),
-        ),
-      );
-      if (result != null && result['matched'] == true) {
-        if (mounted) {
-          _applyCloudAttendanceResult(result, isCheckIn: true);
-        }
-        Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
-        _checkEligibility();
-        Future.delayed(const Duration(seconds: 2), () async {
-          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
-          if (mounted && confirmed != _isCheckedIn) {
-            setState(() => _isCheckedIn = confirmed);
-          }
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Checked in successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
+    if (!CloudFaceService.isConfigured) {
+      _showCloudBackendMissingMessage();
       return;
     }
 
-    if (_useNativeAndroidAttendance) {
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const MarkAttendanceScreen(isCheckIn: true),
-        ),
-      );
-      if (result == true) {
-        if (mounted) {
-          setState(() {
-            _isCheckedIn = true;
-          });
-        }
-        _loadHistoryRecords();
-        _checkEligibility();
-        Future.delayed(const Duration(seconds: 2), () async {
-          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
-          if (mounted && confirmed != _isCheckedIn) {
-            setState(() => _isCheckedIn = confirmed);
-          }
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Checked in successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
-      return;
-    }
-
-    final position = await _getLocation();
-
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<Map<String, dynamic>>(
       context,
-      PageRouteBuilder(
-        opaque: false,
-        pageBuilder: (context, _, __) => AttendanceWebViewModal(
-          flowType: WebFlowType.checkIn,
-          position: position,
-        ),
+      MaterialPageRoute(
+        builder: (context) =>
+            const CloudMarkAttendanceScreen(isCheckIn: true),
       ),
     );
-
-    if (result == true) {
-      // Optimistically flip the button immediately
+    if (result != null && result['matched'] == true) {
       if (mounted) {
-        setState(() {
-          _isCheckedIn = true;
-        });
+        _applyCloudAttendanceResult(result, isCheckIn: true);
       }
-      _loadHistoryRecords();
+      Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
       _checkEligibility();
-      // Confirm from Firebase after a short delay (in case of race condition)
       Future.delayed(const Duration(seconds: 2), () async {
         final confirmed = await _attendanceService.isCurrentlyCheckedIn();
         if (mounted && confirmed != _isCheckedIn) {
@@ -654,102 +512,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleCheckOut() async {
-    if (_useCloudFaceBackend) {
-      final result = await Navigator.push<Map<String, dynamic>>(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              const CloudMarkAttendanceScreen(isCheckIn: false),
-        ),
-      );
-      if (result != null && result['matched'] == true) {
-        if (mounted) {
-          _applyCloudAttendanceResult(result, isCheckIn: false);
-        }
-        Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
-        _checkEligibility();
-        Future.delayed(const Duration(seconds: 2), () async {
-          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
-          if (mounted && confirmed != _isCheckedIn) {
-            setState(() => _isCheckedIn = confirmed);
-          }
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Checked out successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
+    if (!CloudFaceService.isConfigured) {
+      _showCloudBackendMissingMessage();
       return;
     }
 
-    if (_useNativeAndroidAttendance) {
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const MarkAttendanceScreen(isCheckIn: false),
-        ),
-      );
-      if (result == true) {
-        if (mounted) {
-          setState(() {
-            _isCheckedIn = false;
-          });
-        }
-        _loadHistoryRecords();
-        _checkEligibility();
-        Future.delayed(const Duration(seconds: 2), () async {
-          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
-          if (mounted && confirmed != _isCheckedIn) {
-            setState(() => _isCheckedIn = confirmed);
-          }
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Checked out successfully!'),
-              backgroundColor: AppTheme.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        }
-      }
-      return;
-    }
-
-    final position = await _getLocation();
-
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<Map<String, dynamic>>(
       context,
-      PageRouteBuilder(
-        opaque: false,
-        pageBuilder: (context, _, __) => AttendanceWebViewModal(
-          flowType: WebFlowType.checkOut,
-          position: position,
-        ),
+      MaterialPageRoute(
+        builder: (context) =>
+            const CloudMarkAttendanceScreen(isCheckIn: false),
       ),
     );
-
-    if (result == true) {
-      // Optimistically flip the button immediately
+    if (result != null && result['matched'] == true) {
       if (mounted) {
-        setState(() {
-          _isCheckedIn = false;
-        });
+        _applyCloudAttendanceResult(result, isCheckIn: false);
       }
-      _loadHistoryRecords();
+      Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
       _checkEligibility();
-      // Confirm from Firebase after a short delay (in case of race condition)
       Future.delayed(const Duration(seconds: 2), () async {
         final confirmed = await _attendanceService.isCurrentlyCheckedIn();
         if (mounted && confirmed != _isCheckedIn) {

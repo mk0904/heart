@@ -1,29 +1,19 @@
 import 'dart:async';
-import 'dart:io' show File, Platform;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/attendance_record.dart';
 import '../models/daily_attendance.dart';
 import '../models/person.dart';
 import '../utils/user_friendly_errors.dart';
-import 'cloud_face_service.dart';
 import 'connectivity_service.dart';
-import 'face_recognition_service.dart';
 import 'firebase_auth_service.dart';
-import 'firebase_storage_service.dart';
 import 'firestore_service.dart';
 import 'location_service.dart';
 
-/// Native on-device face pipeline (Hive + TFLite) is **Android-only**; iOS keeps the webview flow.
-bool _useNativeAndroidAttendance() {
-  if (CloudFaceService.isConfigured) return false;
-  if (kIsWeb) return false;
-  return Platform.isAndroid;
-}
+/// Attendance now uses the cloud face backend on every platform.
+bool _useNativeAndroidAttendance() => false;
 
 /// Opens a Hive box; if on-disk data is corrupt (frame read errors), deletes and recreates.
 Future<Box<T>> _openHiveBoxOrRecreate<T>(String name) async {
@@ -129,11 +119,8 @@ class AttendanceService {
   static AttendanceService? _instance;
   Box<Person>? _personsBox;
   Box<AttendanceRecord>? _attendanceBox;
-  final FaceRecognitionService _faceRecognitionService =
-      FaceRecognitionService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuthService _authService = FirebaseAuthService();
-  final FirebaseStorageService _storageService = FirebaseStorageService();
   final FirestoreService _firestoreService = FirestoreService();
   final LocationService _locationService = LocationService();
   final ConnectivityService _connectivityService = ConnectivityService();
@@ -141,11 +128,6 @@ class AttendanceService {
   bool _isSyncing = false;
   Timer? _autoCheckoutTimer;
   Future<void>? _initFuture;
-
-  // Threshold for face recognition (Euclidean distance)
-  // Lower threshold = stricter matching
-  // Typical values: 0.6-1.2 (1.0 is a good starting point)
-  static const double recognitionThreshold = 1.1;
 
   // Private constructor for singleton
   AttendanceService._internal();
@@ -209,7 +191,6 @@ class AttendanceService {
     _personsBox = persons;
     _attendanceBox = attendance;
 
-    await _faceRecognitionService.loadModel();
     _isInitialized = true;
 
     syncCurrentUserEmbedding();
@@ -274,141 +255,26 @@ class AttendanceService {
     required String employeeId,
     required List<double> faceEmbedding,
   }) async {
-    await init();
-    if (!_isInitialized || _personsBox == null) {
-      throw Exception('AttendanceService not initialized. Call init() first.');
-    }
-    final person = Person(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: name,
-      employeeId: employeeId,
-      faceEmbedding: faceEmbedding,
-      registeredAt: DateTime.now(),
+    throw UnsupportedError(
+      'Local face registration has been removed. Use CloudFaceService instead.',
     );
-
-    await _personsBox!.put(person.id, person);
   }
 
-  /// Register person with Firebase - stores face embedding in user document
   Future<void> registerPersonWithFirebase({
     required String name,
     required String employeeId,
     required List<double> faceEmbedding,
-    File? faceImageFile,
+    Object? faceImageFile,
   }) async {
-    await init();
-    // Get current user
-    final user = await _authService.getCurrentUser();
-    if (user == null) {
-      throw Exception('User not authenticated');
-    }
-
-    String? faceImageUrl;
-    if (faceImageFile != null) {
-      try {
-        faceImageUrl = await _storageService.uploadRegisteredFaceImage(
-          faceImageFile,
-          user.uid,
-        );
-      } catch (_) {
-        // Embedding still counts; photo is optional if upload fails.
-      }
-    }
-
-    // Store in Firebase user document
-    await _firestore.collection('users').doc(user.uid).update({
-      'faceEmbedding': faceEmbedding,
-      'faceRegisteredAt': DateTime.now().toIso8601String(),
-      'faceRegistered': true,
-      if (faceImageUrl != null) 'faceImageUrl': faceImageUrl,
-    });
-
-    // Also store locally in Hive for offline recognition
-    if (_isInitialized && _personsBox != null) {
-      final person = Person(
-        id: user.uid,
-        name: name,
-        employeeId: employeeId,
-        faceEmbedding: faceEmbedding,
-        registeredAt: DateTime.now(),
-      );
-      await _personsBox!.put(person.id, person);
-    }
+    throw UnsupportedError(
+      'Local face registration has been removed. Use CloudFaceService instead.',
+    );
   }
 
   Future<Person?> recognizePerson(List<double> embedding) async {
-    await init();
-    if (!_isInitialized || _personsBox == null) {
-      throw Exception('AttendanceService not initialized. Call init() first.');
-    }
-
-    // Step 1: First check local storage (fast, offline)
-    Person? bestMatch;
-    double minDistance = double.infinity;
-
-    for (var person in _personsBox!.values) {
-      final distance = _faceRecognitionService.euclideanDistance(
-        embedding,
-        person.faceEmbedding,
-      );
-
-      if (distance < minDistance && distance < recognitionThreshold) {
-        minDistance = distance;
-        bestMatch = person;
-      }
-    }
-
-    // Step 2: If no match found locally, try Firebase fallback
-    if (bestMatch == null) {
-      try {
-        final user = await _authService.getCurrentUser();
-        if (user != null) {
-          // Fetch user document from Firebase
-          final userDoc = await _firestore
-              .collection('users')
-              .doc(user.uid)
-              .get();
-          if (userDoc.exists) {
-            final data = userDoc.data();
-            final faceEmbedding = data?['faceEmbedding'];
-
-            if (faceEmbedding != null && faceEmbedding is List) {
-              // Convert to List<double>
-              final firebaseEmbedding = faceEmbedding
-                  .map((e) => (e as num).toDouble())
-                  .toList();
-
-              // Compare with Firebase embedding
-              final distance = _faceRecognitionService.euclideanDistance(
-                embedding,
-                firebaseEmbedding,
-              );
-
-              if (distance < recognitionThreshold) {
-                // Match found in Firebase! Create Person object and sync to local storage
-                final person = Person(
-                  id: user.uid,
-                  name: user.name,
-                  employeeId: user.uid,
-                  faceEmbedding: firebaseEmbedding,
-                  registeredAt: DateTime.now(),
-                );
-
-                // Sync to local storage for future offline recognition
-                await _personsBox!.put(person.id, person);
-
-                return person;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        // print('Error checking Firebase for face recognition: $e');
-        // Continue and return null if Firebase check fails
-      }
-    }
-
-    return bestMatch;
+    throw UnsupportedError(
+      'Local face matching has been removed. Use CloudFaceService instead.',
+    );
   }
 
   /// Check if user is currently checked in (has more check-ins than check-outs today)

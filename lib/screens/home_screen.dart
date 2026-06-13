@@ -2,10 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../navigation/main_tab_navigator.dart';
-import 'attendance_screen.dart';
-import 'projects_screen.dart';
-import 'circulars_screen.dart';
-import 'account_screen.dart';
 import 'edit_profile_screen.dart';
 import 'events_screen.dart';
 import 'invitations_screen.dart';
@@ -366,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final user = await _authService.getCurrentUser();
       if (user != null && mounted) {
         setState(() {
-          _userName = user.name ?? 'User';
+          _userName = user.name;
           _userRole = user.role;
         });
       }

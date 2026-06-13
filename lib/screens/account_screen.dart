@@ -43,9 +43,9 @@ class _AccountScreenState extends State<AccountScreen> {
       final user = await _authService.getCurrentUser();
       if (user != null && mounted) {
         setState(() {
-          _userName = user.name ?? 'User Name';
-          _userEmail = user.email ?? 'mk@gmail.com';
-          _userRole = _formatRole(user.role ?? 'employee');
+          _userName = user.name;
+          _userEmail = user.email;
+          _userRole = _formatRole(user.role);
           _userInitial = _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U';
           _photoUrl = user.photoUrl;
           _isLoadingProfile = false;
