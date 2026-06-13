@@ -117,7 +117,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return normalized;
   }
 
-  static const List<String> _kEmploymentChoices = ['Contractual', 'Permanent'];
+  static const List<String> _kEmploymentChoices = [
+    'Contractual',
+    'Permanent',
+    'Casual Staff',
+  ];
 
   /// Match dropdown item values exactly (Firestore may store different casing).
   String? _normalizeEmploymentType(String? raw) {
@@ -127,6 +131,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         return 'Contractual';
       case 'permanent':
         return 'Permanent';
+      case 'casual':
+      case 'casual staff':
+      case 'casual-staff':
+        return 'Casual Staff';
       default:
         return raw.trim();
     }

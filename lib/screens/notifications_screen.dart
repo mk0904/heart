@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,19 +26,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
   List<Map<String, dynamic>> _filteredNotifications = [];
   bool _loading = true;
   int _unreadCount = 0;
+  StreamSubscription? _notificationsSubscription;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_onTabChanged);
-    _loadNotifications();
-    _loadUnreadCount();
+    _listenToNotifications();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _notificationsSubscription?.cancel();
     super.dispose();
   }
 
@@ -93,7 +95,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     });
   }
 
-  Future<void> _loadNotifications() async {
+  Future<void> _listenToNotifications() async {
     setState(() {
       _loading = true;
     });
@@ -101,78 +103,58 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     try {
       final user = await _authService.getCurrentUser();
       if (user == null) {
-        setState(() {
-          _loading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _loading = false;
+          });
+        }
         return;
       }
 
       _userId = user.uid;
-      final allNotifications = await _firestoreService.getAllNotifications(_userId!);
-      
-      // Filter to show only notifications (exclude invitations and circulars)
-      final filteredNotifications = allNotifications.where((notif) {
-        final type = notif['type']?.toString().toLowerCase();
-        // Only show push notifications or notifications without a type (general notifications)
-        // Exclude invitations and circulars
-        return type == null || type == 'push' || (type != 'invitation' && type != 'circular');
-      }).toList();
-      
-      setState(() {
-        _notifications = filteredNotifications;
-        _filterNotifications(); // Filter based on selected tab
-        _loading = false;
+      _notificationsSubscription?.cancel();
+      _notificationsSubscription = _firestoreService.streamAllNotifications(_userId!).listen((allNotifications) {
+        // Filter to show only notifications (exclude invitations)
+        final filteredNotifications = allNotifications.where((notif) {
+          final type = notif['type']?.toString().toLowerCase();
+          return type != 'invitation';
+        }).toList();
+
+        // Count unread notifications
+        int count = 0;
+        for (var notif in filteredNotifications) {
+          if (!_isRead(notif)) {
+            count++;
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _notifications = filteredNotifications;
+            _unreadCount = count;
+            _filterNotifications();
+            _loading = false;
+          });
+        }
+      }, onError: (e) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(UserFriendlyErrors.message(e))),
+          );
+        }
       });
     } catch (e) {
-      setState(() {
-        _loading = false;
-      });
       if (mounted) {
+        setState(() {
+          _loading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(UserFriendlyErrors.message(e))),
         );
       }
-    }
-  }
-
-  Future<void> _loadUnreadCount() async {
-    try {
-      final user = await _authService.getCurrentUser();
-      if (user == null) return;
-
-      final allNotifications = await _firestoreService.getAllNotifications(user.uid);
-      
-      // Filter to count only notifications (exclude invitations and circulars)
-      final filteredNotifications = allNotifications.where((notif) {
-        final type = notif['type']?.toString().toLowerCase();
-        return type == null || type == 'push' || (type != 'invitation' && type != 'circular');
-      }).toList();
-      
-      // Count unread notifications
-      int count = 0;
-      for (var notif in filteredNotifications) {
-        final read = notif['read'];
-        final readBy = notif['readBy'] as List?;
-        
-        bool isRead = false;
-        if (read == true) {
-          isRead = true;
-        } else if (readBy != null && readBy.contains(user.uid)) {
-          isRead = true;
-        }
-        
-        if (!isRead) {
-          count++;
-        }
-      }
-      
-      if (mounted) {
-        setState(() {
-          _unreadCount = count;
-        });
-      }
-    } catch (e) {
-      // Ignore error
     }
   }
 
@@ -182,11 +164,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
     try {
       // Update Firebase first
       await _firestoreService.markNotificationAsRead(notification['id'], _userId!);
-      
-      // Refresh notifications from Firebase to get updated state
-      await _loadNotifications();
-      await _loadUnreadCount();
-      _filterNotifications(); // Re-filter after marking as read
+      // Stream will automatically refresh the UI
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -279,9 +257,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
                     : _filteredNotifications.isEmpty
                         ? _buildEmptyState(_tabController.index == 0)
                         : RefreshIndicator(
+                            // Stream will handle the update, but we can re-fetch
                             onRefresh: () async {
-                              await _loadNotifications();
-                              await _loadUnreadCount();
+                              await Future.delayed(const Duration(milliseconds: 500));
                             },
                             child: ListView.builder(
                               padding: const EdgeInsets.all(AppTheme.spacingLG),
@@ -414,12 +392,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with TickerPr
           ),
         );
         
-        // Refresh if notification was marked as read
-        if (result == true) {
-          await _loadNotifications();
-          await _loadUnreadCount();
-          _filterNotifications(); // Re-filter after marking as read
-        }
+        // Stream will automatically refresh if marked as read
       },
       child: Container(
         margin: EdgeInsets.only(bottom: isLast ? 0 : AppTheme.spacingMD),

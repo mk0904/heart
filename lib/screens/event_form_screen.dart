@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firebase_storage_service.dart';
+import '../utils/event_edit_policy.dart';
 import '../utils/user_friendly_errors.dart';
 
 class EventFormScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
   final TextEditingController _femaleParticipantsController = TextEditingController();
   
   final List<XFile> _images = [];
+  final List<String> _existingImageUrls = [];
   DateTime _startDate = DateTime.now();
   TimeOfDay _startTime = TimeOfDay.now();
   DateTime _endDate = DateTime.now();
@@ -76,6 +78,22 @@ class _EventFormScreenState extends State<EventFormScreen> {
     _districtController.text = event['district'] ?? '';
     _maleParticipantsController.text = (event['maleParticipants'] ?? 0).toString();
     _femaleParticipantsController.text = (event['femaleParticipants'] ?? 0).toString();
+    final images = event['images'] as List?;
+    if (images != null) {
+      _existingImageUrls
+        ..clear()
+        ..addAll(
+          images
+              .map((image) {
+                if (image is String) return image;
+                if (image is Map) {
+                  return (image['uri'] ?? image['url'] ?? '').toString();
+                }
+                return '';
+              })
+              .where((url) => url.isNotEmpty),
+        );
+    }
     
     if (event['startDate'] != null) {
       try {
@@ -128,7 +146,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
   }
 
   Future<void> _pickImages() async {
-    final remainingSlots = 20 - _images.length;
+    final remainingSlots = 20 - _existingImageUrls.length - _images.length;
     if (remainingSlots <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -167,6 +185,12 @@ class _EventFormScreenState extends State<EventFormScreen> {
   void _removeImage(int index) {
     setState(() {
       _images.removeAt(index);
+    });
+  }
+
+  void _removeExistingImage(int index) {
+    setState(() {
+      _existingImageUrls.removeAt(index);
     });
   }
 
@@ -286,7 +310,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
       );
       return false;
     }
-    if (_images.isEmpty) {
+    if (_images.isEmpty && _existingImageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please add at least 1 image')),
       );
@@ -297,6 +321,24 @@ class _EventFormScreenState extends State<EventFormScreen> {
 
   Future<void> _submitForm() async {
     if (!_validateForm()) return;
+
+    if (_userId == null) {
+      final user = await _authService.getCurrentUser();
+      if (!mounted) return;
+      _userId = user?.uid;
+      _userCollegeId = user?.collegeId;
+    }
+
+    if (widget.event != null && !canEditEvent(widget.event!, _userId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'You can edit only your own events within 24 hours of creating them.',
+          ),
+        ),
+      );
+      return;
+    }
 
     setState(() => _loading = true);
     
@@ -309,7 +351,11 @@ class _EventFormScreenState extends State<EventFormScreen> {
     try {
       // Upload images to Firebase Storage
       final imageFiles = _images.map((xFile) => File(xFile.path)).toList();
-      final imageUrls = await _firebaseStorageService.uploadEventImages(imageFiles);
+      final uploadedImageUrls = imageFiles.isEmpty
+          ? <String>[]
+          : await _firebaseStorageService.uploadEventImages(imageFiles);
+      final imageUrls = [..._existingImageUrls, ...uploadedImageUrls];
+      final now = DateTime.now();
 
       final eventData = {
         'title': _titleController.text.trim(),
@@ -323,13 +369,16 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'maleParticipants': int.tryParse(_maleParticipantsController.text) ?? 0,
         'femaleParticipants': int.tryParse(_femaleParticipantsController.text) ?? 0,
         'organizedBy': await _getUserName(),
-        'collegeId': _userCollegeId,
-        'createdBy': _userId,
+        'collegeId': _userCollegeId ?? widget.event?['collegeId'],
         'images': imageUrls,
         'status': widget.event?['status'] ?? 'upcoming',
       };
 
       if (widget.event?['id'] != null) {
+        eventData.addAll({
+          'updatedAt': now.toIso8601String(),
+          'updatedBy': _userId,
+        });
         await _firestoreService.saveEvent(eventData, eventId: widget.event!['id']);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -338,6 +387,10 @@ class _EventFormScreenState extends State<EventFormScreen> {
           Navigator.pop(context, true);
         }
       } else {
+        eventData.addAll({
+          'createdAt': now.toIso8601String(),
+          'createdBy': _userId,
+        });
         await _firestoreService.saveEvent(eventData);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -771,6 +824,13 @@ class _EventFormScreenState extends State<EventFormScreen> {
   }
 
   Widget _buildImagesSection() {
+    final imageCount = _existingImageUrls.length + _images.length;
+    final itemSize =
+        (MediaQuery.of(context).size.width -
+            AppTheme.spacing2XL * 2 -
+            AppTheme.spacingXS * 2) /
+        3;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -791,17 +851,17 @@ class _EventFormScreenState extends State<EventFormScreen> {
                 vertical: 4,
               ),
               decoration: BoxDecoration(
-                color: _images.isNotEmpty
+                color: imageCount > 0
                     ? AppTheme.successLight
                     : AppTheme.warningLight,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                '${_images.length} selected',
+                '$imageCount selected',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _images.isNotEmpty
+                  color: imageCount > 0
                       ? AppTheme.success
                       : AppTheme.warning,
                 ),
@@ -814,14 +874,67 @@ class _EventFormScreenState extends State<EventFormScreen> {
           spacing: AppTheme.spacingXS,
           runSpacing: AppTheme.spacingXS,
           children: [
+            ..._existingImageUrls.asMap().entries.map((entry) {
+              final index = entry.key;
+              final imageUrl = entry.value;
+              return Stack(
+                children: [
+                  Container(
+                    width: itemSize,
+                    height: itemSize,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                      border: Border.all(color: AppTheme.borderLight, width: 0.5),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: AppTheme.borderLight,
+                            child: const Icon(
+                              Icons.broken_image,
+                              size: 32,
+                              color: AppTheme.textSecondary,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () => _removeExistingImage(index),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.error,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: AppTheme.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
             ..._images.asMap().entries.map((entry) {
               final index = entry.key;
               final image = entry.value;
               return Stack(
                 children: [
                   Container(
-                    width: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
-                    height: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
+                    width: itemSize,
+                    height: itemSize,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(AppTheme.radiusBase),
                       border: Border.all(color: AppTheme.borderLight, width: 0.5),
@@ -863,12 +976,12 @@ class _EventFormScreenState extends State<EventFormScreen> {
                 ],
               );
             }),
-            if (_images.length < 20)
+            if (imageCount < 20)
               GestureDetector(
                 onTap: _pickImages,
                 child: Container(
-                  width: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
-                  height: (MediaQuery.of(context).size.width - AppTheme.spacing2XL * 2 - AppTheme.spacingXS * 2) / 3,
+                  width: itemSize,
+                  height: itemSize,
                   decoration: BoxDecoration(
                     border: Border.all(
                       color: AppTheme.borderLight,

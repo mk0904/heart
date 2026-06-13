@@ -27,6 +27,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   String _selectedStream = '';
   String _selectedSemester = '';
   String _selectedCourse = '';
+  String _selectedAcademicYear = '';
   bool _submitting = false;
   bool _loadingSubmissions = false;
   bool _refreshing = false;
@@ -63,6 +64,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   List<String> _availableStreams = [];
 
   final List<String> _semesters = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+  final List<String> _academicYears = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
 
   @override
   void initState() {
@@ -289,10 +291,10 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
   }
 
   Future<void> _handleSubmit() async {
-    if (_selectedStream.isEmpty || _selectedSemester.isEmpty || _selectedCourse.isEmpty) {
+    if (_selectedAcademicYear.isEmpty || _selectedStream.isEmpty || _selectedSemester.isEmpty || _selectedCourse.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select Stream, Semester, and Course.')),
+          const SnackBar(content: Text('Please select Academic Year, Stream, Semester, and Course.')),
         );
       }
       return;
@@ -397,6 +399,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       final categoryTotals = _calculateCategoryTotals();
       
       final submissionData = <String, dynamic>{
+        'academicYear': _selectedAcademicYear,
         'stream': _selectedStream,
         'semester': _selectedSemester,
         'course': _selectedCourse,
@@ -437,6 +440,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       setState(() {
         _editingSubmissionId = null;
         _selectedCollegeId = _userCollegeId;
+        _selectedAcademicYear = '';
         _selectedStream = '';
         _selectedSemester = '';
         _selectedCourse = '';
@@ -603,6 +607,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
       } else {
         _selectedCourse = courseName;
       }
+      _selectedAcademicYear = submission['academicYear']?.toString() ?? '';
       _selectedStream = submission['stream']?.toString() ?? '';
       _selectedSemester = submission['semester']?.toString() ?? '';
 
@@ -783,6 +788,18 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
               const SizedBox(height: AppTheme.spacingLG),
             ],
           ),
+
+          // Academic Year Selection
+          _buildDropdownField(
+            'Academic Year *',
+            _selectedAcademicYear,
+            _academicYears.map((y) => {'value': y, 'label': y}).toList(),
+            (value) => setState(() => _selectedAcademicYear = value),
+            'Select Academic Year',
+            Icons.calendar_today_outlined,
+          ),
+          
+          const SizedBox(height: AppTheme.spacingLG),
 
           // Course Selection (was called "Stream" before)
           _buildDynamicCourseDropdown(),
@@ -1507,7 +1524,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${submission['stream']} ${submission['semester']} - ${submission['course']}',
+                    '${submission['academicYear'] != null && submission['academicYear'].toString().isNotEmpty ? submission['academicYear'] + ' • ' : ''}${submission['stream']} ${submission['semester']} - ${submission['course']}',
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -1644,6 +1661,7 @@ class _SubmitDataScreenState extends State<SubmitDataScreen> {
                       _buildModalCard(
                         'Basic Information',
                         [
+                          _buildModalInfoRow('Academic Year:', submission['academicYear'] ?? 'N/A'),
                           _buildModalInfoRow('Stream:', submission['stream']),
                           _buildModalInfoRow('Semester:', submission['semester']),
                           _buildModalInfoRow('Course:', submission['course']),

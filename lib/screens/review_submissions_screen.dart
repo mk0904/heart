@@ -420,7 +420,7 @@ class _ReviewSubmissionsScreenState extends State<ReviewSubmissionsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${submission['stream']} ${submission['semester']} - ${submission['course']}',
+                    '${submission['academicYear'] != null && submission['academicYear'].toString().isNotEmpty ? submission['academicYear'] + ' • ' : ''}${submission['stream']} ${submission['semester']} - ${submission['course']}',
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -549,6 +549,10 @@ class _ReviewSubmissionsScreenState extends State<ReviewSubmissionsScreen> {
                       _buildModalCard(
                         'Basic Information',
                         [
+                          _buildModalInfoRow(
+                            'Academic Year:',
+                            '${submission['academicYear'] ?? 'N/A'}',
+                          ),
                           _buildModalInfoRow(
                             'Stream:',
                             '${submission['stream'] ?? ''}',

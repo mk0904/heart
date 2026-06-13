@@ -10,6 +10,7 @@ import '../models/attendance_record.dart';
 import '../models/daily_attendance.dart';
 import '../models/person.dart';
 import '../utils/user_friendly_errors.dart';
+import 'cloud_face_service.dart';
 import 'connectivity_service.dart';
 import 'face_recognition_service.dart';
 import 'firebase_auth_service.dart';
@@ -19,6 +20,7 @@ import 'location_service.dart';
 
 /// Native on-device face pipeline (Hive + TFLite) is **Android-only**; iOS keeps the webview flow.
 bool _useNativeAndroidAttendance() {
+  if (CloudFaceService.isConfigured) return false;
   if (kIsWeb) return false;
   return Platform.isAndroid;
 }
@@ -38,16 +40,6 @@ Future<Box<T>> _openHiveBoxOrRecreate<T>(String name) async {
     } catch (_) {}
     return await Hive.openBox<T>(name);
   }
-}
-
-String _formatDistanceMeters(double meters) {
-  if (meters >= 1000) {
-    return '${(meters / 1000).toStringAsFixed(2)} km';
-  }
-  if (meters >= 100) {
-    return '${meters.round()} m';
-  }
-  return '${meters.toStringAsFixed(1)} m';
 }
 
 /// Parsed college schedule boundary (Firestore may use int hour, `"HH:mm"` 24h, or 12h with am/pm).
@@ -137,7 +129,8 @@ class AttendanceService {
   static AttendanceService? _instance;
   Box<Person>? _personsBox;
   Box<AttendanceRecord>? _attendanceBox;
-  final FaceRecognitionService _faceRecognitionService = FaceRecognitionService();
+  final FaceRecognitionService _faceRecognitionService =
+      FaceRecognitionService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final FirebaseStorageService _storageService = FirebaseStorageService();
@@ -228,43 +221,43 @@ class AttendanceService {
       checkAutoCheckout();
     });
   }
-  
+
   /// Sync current user's face embedding from Firebase to local storage
   Future<void> syncCurrentUserEmbedding() async {
     if (!_useNativeAndroidAttendance() || _personsBox == null) return;
     try {
       final user = await _authService.getCurrentUser();
       if (user == null) return;
-      
+
       // Check if already exists in local storage
       final existingPerson = _personsBox!.get(user.uid);
       if (existingPerson != null) {
         // Already synced, skip
         return;
       }
-      
+
       // Fetch from Firebase
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (userDoc.exists) {
         final data = userDoc.data();
         final faceEmbedding = data?['faceEmbedding'];
         final faceRegistered = data?['faceRegistered'] ?? false;
-        
+
         if (faceRegistered && faceEmbedding != null && faceEmbedding is List) {
           // Convert to List<double>
           final firebaseEmbedding = faceEmbedding
               .map((e) => (e as num).toDouble())
               .toList();
-          
+
           // Store in local Hive storage
           final person = Person(
             id: user.uid,
-            name: user.name ?? 'User',
+            name: user.name,
             employeeId: user.uid,
             faceEmbedding: firebaseEmbedding,
             registeredAt: DateTime.now(),
           );
-          
+
           await _personsBox!.put(user.uid, person);
         }
       }
@@ -371,17 +364,20 @@ class AttendanceService {
         final user = await _authService.getCurrentUser();
         if (user != null) {
           // Fetch user document from Firebase
-          final userDoc = await _firestore.collection('users').doc(user.uid).get();
+          final userDoc = await _firestore
+              .collection('users')
+              .doc(user.uid)
+              .get();
           if (userDoc.exists) {
             final data = userDoc.data();
             final faceEmbedding = data?['faceEmbedding'];
-            
+
             if (faceEmbedding != null && faceEmbedding is List) {
               // Convert to List<double>
               final firebaseEmbedding = faceEmbedding
                   .map((e) => (e as num).toDouble())
                   .toList();
-              
+
               // Compare with Firebase embedding
               final distance = _faceRecognitionService.euclideanDistance(
                 embedding,
@@ -397,10 +393,10 @@ class AttendanceService {
                   faceEmbedding: firebaseEmbedding,
                   registeredAt: DateTime.now(),
                 );
-                
+
                 // Sync to local storage for future offline recognition
                 await _personsBox!.put(person.id, person);
-                
+
                 return person;
               }
             }
@@ -432,15 +428,20 @@ class AttendanceService {
         if (data != null) {
           // Check events array
           final events = List<Map<String, dynamic>>.from(
-            (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+            (data['events'] as List?)?.map(
+                  (e) => Map<String, dynamic>.from(e as Map),
+                ) ??
+                [],
           );
-          
+
           if (events.isNotEmpty) {
             // Sort by time to ensure correct order
-            events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+            events.sort(
+              (a, b) => (a['time'] as String).compareTo(b['time'] as String),
+            );
             return events.last['type'] == 'check_in';
           }
-          
+
           // Fallback to top-level fields only if events is empty
           if (data['checkInTime'] != null && data['checkoutTime'] == null) {
             return true;
@@ -452,20 +453,29 @@ class AttendanceService {
     }
 
     // Fallback to local storage (check for check-in without check-out) — Android native only
-    if (!_useNativeAndroidAttendance() || !_isInitialized || _attendanceBox == null) {
+    if (!_useNativeAndroidAttendance() ||
+        !_isInitialized ||
+        _attendanceBox == null) {
       return false;
     }
     final todayRecords = _attendanceBox!.values
-        .where((r) => r.employeeId == user.uid &&
-               r.timestamp.year == todayStart.year &&
-               r.timestamp.month == todayStart.month &&
-               r.timestamp.day == todayStart.day)
+        .where(
+          (r) =>
+              r.employeeId == user.uid &&
+              r.timestamp.year == todayStart.year &&
+              r.timestamp.month == todayStart.month &&
+              r.timestamp.day == todayStart.day,
+        )
         .toList();
 
     if (todayRecords.isNotEmpty) {
       // Count check-ins vs check-outs
-      final checkInCount = todayRecords.where((r) => r.type == 'check_in').length;
-      final checkOutCount = todayRecords.where((r) => r.type == 'check_out').length;
+      final checkInCount = todayRecords
+          .where((r) => r.type == 'check_in')
+          .length;
+      final checkOutCount = todayRecords
+          .where((r) => r.type == 'check_out')
+          .length;
       return checkInCount > checkOutCount;
     }
 
@@ -480,14 +490,42 @@ class AttendanceService {
     try {
       final college = await _firestoreService.getCollege(user.collegeId!);
       if (college != null) {
-        final startTimeRaw = college['startTime'];
-        final endTimeRaw = college['endTime'];
+        var startTimeRaw = college['startTime'];
+        var endTimeRaw = college['endTime'];
         final maxDistanceRaw = college['maxDistance'];
         final latitudeRaw = college['latitude'];
         final longitudeRaw = college['longitude'];
+        final timeSlotRulesRaw = college['timeSlotRules'];
 
-        final start = _parseCollegeScheduleField(startTimeRaw, defaultHour: 9, defaultMinute: 0);
-        final end = _parseCollegeScheduleField(endTimeRaw, defaultHour: 17, defaultMinute: 0);
+        // Apply timeSlotRules logic locally
+        if (timeSlotRulesRaw is List) {
+          for (var ruleRaw in timeSlotRulesRaw) {
+            if (ruleRaw is Map) {
+              final ruleRole = ruleRaw['role']?.toString() ?? 'Any';
+              final ruleEmp = ruleRaw['employmentType']?.toString() ?? 'Any';
+              
+              bool roleMatch = ruleRole == 'Any' || ruleRole == user.role;
+              bool empMatch = ruleEmp == 'Any' || ruleEmp == user.employmentType;
+              
+              if (roleMatch && empMatch) {
+                if (ruleRaw['startTime'] != null) startTimeRaw = ruleRaw['startTime'];
+                if (ruleRaw['endTime'] != null) endTimeRaw = ruleRaw['endTime'];
+                break; // Use the first matching rule
+              }
+            }
+          }
+        }
+
+        final start = _parseCollegeScheduleField(
+          startTimeRaw,
+          defaultHour: 9,
+          defaultMinute: 0,
+        );
+        final end = _parseCollegeScheduleField(
+          endTimeRaw,
+          defaultHour: 17,
+          defaultMinute: 0,
+        );
 
         return {
           'startHour': start.hour,
@@ -501,8 +539,12 @@ class AttendanceService {
           'maxDistance': maxDistanceRaw is double
               ? maxDistanceRaw
               : (maxDistanceRaw is int ? maxDistanceRaw.toDouble() : 500.0),
-          'latitude': latitudeRaw is double ? latitudeRaw : (latitudeRaw is int ? latitudeRaw.toDouble() : null),
-          'longitude': longitudeRaw is double ? longitudeRaw : (longitudeRaw is int ? longitudeRaw.toDouble() : null),
+          'latitude': latitudeRaw is double
+              ? latitudeRaw
+              : (latitudeRaw is int ? latitudeRaw.toDouble() : null),
+          'longitude': longitudeRaw is double
+              ? longitudeRaw
+              : (longitudeRaw is int ? longitudeRaw.toDouble() : null),
         };
       }
     } catch (e) {
@@ -531,7 +573,8 @@ class AttendanceService {
     final now = DateTime.now();
     final nowMins = now.hour * 60 + now.minute;
     final startMins =
-        (details['startHour'] as int) * 60 + (details['startMinute'] as int? ?? 0);
+        (details['startHour'] as int) * 60 +
+        (details['startMinute'] as int? ?? 0);
     final endMins =
         (details['endHour'] as int) * 60 + (details['endMinute'] as int? ?? 0);
 
@@ -546,7 +589,8 @@ class AttendanceService {
     final now = DateTime.now();
     final nowMins = now.hour * 60 + now.minute;
     final startMins =
-        (details['startHour'] as int) * 60 + (details['startMinute'] as int? ?? 0);
+        (details['startHour'] as int) * 60 +
+        (details['startMinute'] as int? ?? 0);
 
     // Allowed if strictly before college start (same day, wall-clock).
     return nowMins < startMins;
@@ -571,10 +615,7 @@ class AttendanceService {
       // Get college details
       final collegeDetails = await getCollegeDetails();
       if (collegeDetails == null) {
-        return {
-          'valid': true,
-          'message': 'College details not found',
-        };
+        return {'valid': true, 'message': 'College details not found'};
       }
 
       // Get user's current location
@@ -582,7 +623,8 @@ class AttendanceService {
       if (position == null) {
         return {
           'valid': false,
-          'message': 'Unable to get your location. Please enable location services.',
+          'message':
+              'Unable to get your location. Please enable location services.',
         };
       }
 
@@ -590,21 +632,22 @@ class AttendanceService {
       final collegeLatRaw = collegeDetails['latitude'];
       final collegeLonRaw = collegeDetails['longitude'];
       final maxDistanceRaw = collegeDetails['maxDistance'];
-      
+
       if (collegeLatRaw == null || collegeLonRaw == null) {
-        return {
-          'valid': false,
-          'message': 'College location not configured',
-        };
+        return {'valid': false, 'message': 'College location not configured'};
       }
-      
-      final collegeLat = (collegeLatRaw is int) ? collegeLatRaw.toDouble() : (collegeLatRaw as num).toDouble();
-      final collegeLon = (collegeLonRaw is int) ? collegeLonRaw.toDouble() : (collegeLonRaw as num).toDouble();
+
+      final collegeLat = (collegeLatRaw is int)
+          ? collegeLatRaw.toDouble()
+          : (collegeLatRaw as num).toDouble();
+      final collegeLon = (collegeLonRaw is int)
+          ? collegeLonRaw.toDouble()
+          : (collegeLonRaw as num).toDouble();
       final maxDistanceMeters = (maxDistanceRaw is int)
           ? maxDistanceRaw.toDouble()
           : (maxDistanceRaw is double
-              ? maxDistanceRaw
-              : (maxDistanceRaw as num).toDouble());
+                ? maxDistanceRaw
+                : (maxDistanceRaw as num).toDouble());
 
       final isWithin = _locationService.isWithinGeofence(
         position.latitude,
@@ -623,8 +666,7 @@ class AttendanceService {
         );
         return {
           'valid': false,
-          'message': 'You are ${_formatDistanceMeters(distanceM)} away from college. '
-              'Maximum allowed distance is ${_formatDistanceMeters(maxDistanceMeters)}.',
+          'message': 'You are not in the bounded area for marking attendance.',
           'distanceMeters': distanceM,
           'maxDistanceMeters': maxDistanceMeters,
           'distance': distanceM / 1000,
@@ -632,15 +674,9 @@ class AttendanceService {
         };
       }
 
-      return {
-        'valid': true,
-        'message': 'Location verified',
-      };
+      return {'valid': true, 'message': 'Location verified'};
     } catch (e) {
-      return {
-        'valid': false,
-        'message': UserFriendlyErrors.message(e),
-      };
+      return {'valid': false, 'message': UserFriendlyErrors.message(e)};
     }
   }
 
@@ -652,74 +688,92 @@ class AttendanceService {
 
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
-      
+
       // Get yesterday's date
       final yesterday = todayStart.subtract(const Duration(days: 1));
       final yesterdayStr = yesterday.toIso8601String().split('T')[0];
-      
+
       // Find current user's attendance record for yesterday
       final userRecords = await _firestore
           .collection('attendance')
           .where('userId', isEqualTo: user.uid)
           .get();
-      
+
       // Filter yesterday's records in memory to avoid index requirements for date field
       final yesterdayRecords = userRecords.docs.where((doc) {
         final data = doc.data();
         final dateStr = data['date'] as String?;
         if (dateStr == yesterdayStr) return true;
-        
+
         // Also check timestamp field for backward compatibility
         final timestamp = data['timestamp'] as String?;
         if (timestamp != null) {
           try {
             final recordTime = DateTime.parse(timestamp);
-            final recordDate = DateTime(recordTime.year, recordTime.month, recordTime.day);
+            final recordDate = DateTime(
+              recordTime.year,
+              recordTime.month,
+              recordTime.day,
+            );
             return recordDate.year == yesterday.year &&
-                   recordDate.month == yesterday.month &&
-                   recordDate.day == yesterday.day;
+                recordDate.month == yesterday.month &&
+                recordDate.day == yesterday.day;
           } catch (e) {
             return false;
           }
         }
         return false;
       }).toList();
-      
+
       for (var doc in yesterdayRecords) {
         final data = doc.data() as Map<String, dynamic>?;
         if (data == null) continue;
-        
+
         // Get events array
         final events = List<Map<String, dynamic>>.from(
-          (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+          (data['events'] as List?)?.map(
+                (e) => Map<String, dynamic>.from(e as Map),
+              ) ??
+              [],
         );
-        
+
         // If events is empty but we have check-in/out fields, reconstruct once
         if (events.isEmpty) {
           if (data['checkInTime'] != null) {
             events.add({
               'type': 'check_in',
               'time': data['checkInTime'] as String,
-              'confidence': (data['checkInConfidence'] as num?)?.toDouble() ?? 0.0,
+              'confidence':
+                  (data['checkInConfidence'] as num?)?.toDouble() ?? 0.0,
             });
           }
           if (data['checkoutTime'] != null) {
             events.add({
               'type': 'check_out',
               'time': data['checkoutTime'] as String,
-              'confidence': (data['checkoutConfidence'] as num?)?.toDouble() ?? 0.0,
+              'confidence':
+                  (data['checkoutConfidence'] as num?)?.toDouble() ?? 0.0,
             });
           }
         }
-        
+
         // Sort to be sure
         if (events.isNotEmpty) {
-          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+          events.sort(
+            (a, b) => (a['time'] as String).compareTo(b['time'] as String),
+          );
         }
-        
+
         // If last event is check_in, auto-checkout at 11:59 PM
         if (events.isNotEmpty && events.last['type'] == 'check_in') {
-          final midnight = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
+          final midnight = DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            23,
+            59,
+            59,
+          );
           Map<String, dynamic>? lastIn;
           for (var i = events.length - 1; i >= 0; i--) {
             if (events[i]['type'] == 'check_in') {
@@ -771,7 +825,7 @@ class AttendanceService {
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
       final todayEnd = todayStart.add(const Duration(days: 1));
-      
+
       // Fetch all records for this user and filter by date
       final allRecords = await _firestore
           .collection('attendance')
@@ -790,7 +844,8 @@ class AttendanceService {
         if (timestamp != null) {
           try {
             final recordTime = DateTime.parse(timestamp);
-            if (recordTime.isAfter(todayStart) && recordTime.isBefore(todayEnd)) {
+            if (recordTime.isAfter(todayStart) &&
+                recordTime.isBefore(todayEnd)) {
               return doc;
             }
           } catch (e) {
@@ -826,21 +881,28 @@ class AttendanceService {
     final user = await _authService.getCurrentUser();
     if (user != null) {
       final todayRecord = await _getTodayRecord(user.uid);
-      
+
       String? lastStatus;
       if (todayRecord != null) {
         final data = todayRecord.data() as Map<String, dynamic>?;
         if (data != null) {
           final events = List<Map<String, dynamic>>.from(
-            (data['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+            (data['events'] as List?)?.map(
+                  (e) => Map<String, dynamic>.from(e as Map),
+                ) ??
+                [],
           );
-          
+
           if (events.isNotEmpty) {
-            events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+            events.sort(
+              (a, b) => (a['time'] as String).compareTo(b['time'] as String),
+            );
             lastStatus = events.last['type'] as String?;
           } else if (data['checkInTime'] != null) {
             // Fallback for old format
-            lastStatus = data['checkoutTime'] == null ? 'check_in' : 'check_out';
+            lastStatus = data['checkoutTime'] == null
+                ? 'check_in'
+                : 'check_out';
           }
         }
       }
@@ -848,11 +910,13 @@ class AttendanceService {
       // Enforce the rules
       if (type == 'check_in') {
         if (lastStatus == 'check_in') {
-          throw Exception('You are already checked in! Please check out first.');
+          throw Exception(
+            'You are already checked in! Please check out first.',
+          );
         }
       } else if (type == 'check_out') {
-        if (lastStatus == null || lastStatus == 'check_out') {
-          throw Exception('You need to check in first before checking out.');
+        if (lastStatus == 'check_out') {
+          throw Exception('You are already checked out.');
         }
       }
     }
@@ -883,13 +947,15 @@ class AttendanceService {
     // Sync to Firebase in background (don't block UI)
     final isConnected = await _connectivityService.isConnected();
     if (isConnected) {
-      unawaited(_syncAttendanceToFirebaseInBackground(
-        person: person,
-        type: type,
-        confidence: confidence,
-        timestamp: timestamp,
-        localRecord: record,
-      ));
+      unawaited(
+        _syncAttendanceToFirebaseInBackground(
+          person: person,
+          type: type,
+          confidence: confidence,
+          timestamp: timestamp,
+          localRecord: record,
+        ),
+      );
     }
   }
 
@@ -939,10 +1005,13 @@ class AttendanceService {
         final recordData = todayRecord.data() as Map<String, dynamic>?;
         if (recordData != null) {
           final updateData = <String, dynamic>{};
-          
+
           // Get current events or initialize empty
           final events = List<Map<String, dynamic>>.from(
-            (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+            (recordData['events'] as List?)?.map(
+                  (e) => Map<String, dynamic>.from(e as Map),
+                ) ??
+                [],
           );
 
           // Add new event (all audit fields required for Firestore)
@@ -955,13 +1024,15 @@ class AttendanceService {
             'photoUrl': photo,
           };
           events.add(newEvent);
-          
+
           // Sort events by time to ensure order
-          events.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+          events.sort(
+            (a, b) => (a['time'] as String).compareTo(b['time'] as String),
+          );
 
           // Prepare update data
           updateData['events'] = events;
-          
+
           // Update top-level status fields for backward compatibility and quick lookups
           if (type == 'check_in') {
             updateData['checkInTime'] = timestamp.toIso8601String();
@@ -1029,13 +1100,11 @@ class AttendanceService {
     }
   }
 
-
-
   /// Sync all unsynced attendance records to Firebase
   Future<void> syncPendingAttendance() async {
     if (!_useNativeAndroidAttendance() || _attendanceBox == null) return;
     if (_isSyncing || !_isInitialized) return;
-    
+
     final isConnected = await _connectivityService.isConnected();
     if (!isConnected) {
       // print('No internet connection, skipping sync');
@@ -1052,9 +1121,8 @@ class AttendanceService {
 
       // Get all unsynced records (handle old records without synced field)
       final unsyncedRecords = _attendanceBox!.values
-          .where((record) => 
-            record.synced == false && 
-            record.employeeId == user.uid
+          .where(
+            (record) => record.synced == false && record.employeeId == user.uid,
           )
           .toList();
 
@@ -1068,7 +1136,7 @@ class AttendanceService {
           record.timestamp.month,
           record.timestamp.day,
         ).toIso8601String().split('T')[0];
-        
+
         if (!recordsByDate.containsKey(dateStr)) {
           recordsByDate[dateStr] = [];
         }
@@ -1082,24 +1150,30 @@ class AttendanceService {
       for (var entry in recordsByDate.entries) {
         final dateStr = entry.key;
         final records = entry.value;
-        
+
         try {
           // Check if today's record exists in Firebase
           final todayRecord = await _getTodayRecord(user.uid);
-          
+
           if (todayRecord != null) {
             final recordData = todayRecord.data() as Map<String, dynamic>?;
             if (recordData != null && recordData['date'] == dateStr) {
               // Update existing record - merge events
               final existingEvents = List<Map<String, dynamic>>.from(
-                (recordData['events'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? []
+                (recordData['events'] as List?)?.map(
+                      (e) => Map<String, dynamic>.from(e as Map),
+                    ) ??
+                    [],
               );
-              
+
               // Sort to ensure order
               if (existingEvents.isNotEmpty) {
-                existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+                existingEvents.sort(
+                  (a, b) =>
+                      (a['time'] as String).compareTo(b['time'] as String),
+                );
               }
-              
+
               // Add new events from local storage (sorted by timestamp)
               final sortedRecords = List<AttendanceRecord>.from(records)
                 ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -1117,13 +1191,14 @@ class AttendanceService {
                   try {
                     final existingTime = DateTime.parse(e['time'] as String);
                     final recordTime = record.timestamp;
-                    return e['type'] == record.type && 
-                           (existingTime.difference(recordTime).abs().inSeconds <= 5);
+                    return e['type'] == record.type &&
+                        (existingTime.difference(recordTime).abs().inSeconds <=
+                            5);
                   } catch (e) {
                     return false;
                   }
                 });
-                
+
                 if (!exists) {
                   existingEvents.add({
                     'type': record.type,
@@ -1136,12 +1211,20 @@ class AttendanceService {
                 }
                 mergedSuccessfully.add(record);
               }
-              
+
               // Sort again after adding new events
-              existingEvents.sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
-              
-              final lastCheckIn = existingEvents.lastWhere((e) => e['type'] == 'check_in', orElse: () => {});
-              final lastCheckOut = existingEvents.lastWhere((e) => e['type'] == 'check_out', orElse: () => {});
+              existingEvents.sort(
+                (a, b) => (a['time'] as String).compareTo(b['time'] as String),
+              );
+
+              final lastCheckIn = existingEvents.lastWhere(
+                (e) => e['type'] == 'check_in',
+                orElse: () => {},
+              );
+              final lastCheckOut = existingEvents.lastWhere(
+                (e) => e['type'] == 'check_out',
+                orElse: () => {},
+              );
 
               final updateData = {
                 'events': existingEvents,
@@ -1151,16 +1234,18 @@ class AttendanceService {
               if (lastCheckIn.isNotEmpty) {
                 updateData['checkInTime'] = lastCheckIn['time'];
                 updateData['checkInConfidence'] = lastCheckIn['confidence'];
-                updateData['type'] = existingEvents.last['type']; // Current status
+                updateData['type'] =
+                    existingEvents.last['type']; // Current status
               }
               if (lastCheckOut.isNotEmpty) {
                 updateData['checkoutTime'] = lastCheckOut['time'];
                 updateData['checkoutConfidence'] = lastCheckOut['confidence'];
-                updateData['type'] = existingEvents.last['type']; // Current status
+                updateData['type'] =
+                    existingEvents.last['type']; // Current status
               }
 
               await todayRecord.reference.update(updateData);
-              
+
               for (var record in mergedSuccessfully) {
                 record.synced = true;
                 await record.save();
@@ -1169,7 +1254,7 @@ class AttendanceService {
               continue; // Skip to next date
             }
           }
-          
+
           // Record doesn't exist, create new one
           {
             // Sort records by timestamp to maintain order
@@ -1196,10 +1281,10 @@ class AttendanceService {
             if (events.isEmpty) {
               continue;
             }
-            
+
             Map<String, dynamic>? lastCheckIn;
             Map<String, dynamic>? lastCheckOut;
-            
+
             for (var event in events.reversed) {
               if (lastCheckIn == null && event['type'] == 'check_in') {
                 lastCheckIn = event;
@@ -1209,7 +1294,7 @@ class AttendanceService {
               }
               if (lastCheckIn != null && lastCheckOut != null) break;
             }
-            
+
             final firstR = createdSynced.first;
             final recordData = <String, dynamic>{
               'personId': firstR.personId,
@@ -1224,7 +1309,7 @@ class AttendanceService {
               'latitude': events.last['latitude'],
               'longitude': events.last['longitude'],
             };
-            
+
             if (lastCheckIn != null) {
               recordData['checkInTime'] = lastCheckIn['time'];
               recordData['checkInConfidence'] = lastCheckIn['confidence'];
@@ -1233,11 +1318,11 @@ class AttendanceService {
               recordData['checkoutTime'] = lastCheckOut['time'];
               recordData['checkoutConfidence'] = lastCheckOut['confidence'];
             }
-            
+
             recordData['createdAt'] = DateTime.now().toIso8601String();
-            
+
             await _firestore.collection('attendance').add(recordData);
-            
+
             for (var record in createdSynced) {
               record.synced = true;
               await record.save();
@@ -1262,9 +1347,9 @@ class AttendanceService {
   void startAutoSync() {
     _connectivityService.connectivityStream.listen((results) async {
       // Check if any connection type is available (not none)
-      final hasConnection = results.isNotEmpty && 
-          !results.contains(ConnectivityResult.none);
-      
+      final hasConnection =
+          results.isNotEmpty && !results.contains(ConnectivityResult.none);
+
       if (hasConnection) {
         // Internet available, sync pending records
         await syncPendingAttendance();
@@ -1293,9 +1378,12 @@ class AttendanceService {
             'type': r.type,
             'time': r.timestamp.toIso8601String(),
             'confidence': r.confidence,
-            if (r.photoUrl != null && r.photoUrl!.isNotEmpty) 'photoUrl': r.photoUrl,
-            if (r.latitude != null && r.longitude != null) 'latitude': r.latitude,
-            if (r.latitude != null && r.longitude != null) 'longitude': r.longitude,
+            if (r.photoUrl != null && r.photoUrl!.isNotEmpty)
+              'photoUrl': r.photoUrl,
+            if (r.latitude != null && r.longitude != null)
+              'latitude': r.latitude,
+            if (r.latitude != null && r.longitude != null)
+              'longitude': r.longitude,
           },
         )
         .toList();
@@ -1310,7 +1398,6 @@ class AttendanceService {
       final querySnapshot = await _firestore
           .collection('attendance')
           .where('userId', isEqualTo: user.uid)
-          .orderBy('createdAt', descending: true)
           .get();
 
       final List<Map<String, dynamic>> allEvents = [];
@@ -1319,8 +1406,9 @@ class AttendanceService {
         final data = doc.data();
 
         if (data['events'] != null) {
-          final eventsList =
-              (data['events'] as List).map((e) => e as Map<String, dynamic>).toList();
+          final eventsList = (data['events'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
           allEvents.addAll(eventsList);
         } else if (data['type'] != null && data['timestamp'] != null) {
           allEvents.add({
@@ -1377,7 +1465,9 @@ class AttendanceService {
 
         if (data['events'] != null && data['events'] is List) {
           final events = List<Map<String, dynamic>>.from(
-            (data['events'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+            (data['events'] as List).map(
+              (e) => Map<String, dynamic>.from(e as Map),
+            ),
           );
 
           for (var event in events) {
@@ -1433,7 +1523,9 @@ class AttendanceService {
 
       for (var localRecord in localRecords) {
         final matchIndex = records.indexWhere((r) {
-          final timeDiff = (r.timestamp.difference(localRecord.timestamp)).abs();
+          final timeDiff = (r.timestamp.difference(
+            localRecord.timestamp,
+          )).abs();
           return r.employeeId == localRecord.employeeId &&
               r.type == localRecord.type &&
               timeDiff.inSeconds <= 1;
@@ -1442,7 +1534,8 @@ class AttendanceService {
           records.add(localRecord);
         } else {
           final remote = records[matchIndex];
-          final localHasPhoto = localRecord.photoUrl != null &&
+          final localHasPhoto =
+              localRecord.photoUrl != null &&
               localRecord.photoUrl!.trim().isNotEmpty;
           final remoteMissingPhoto =
               remote.photoUrl == null || remote.photoUrl!.trim().isEmpty;
@@ -1468,13 +1561,14 @@ class AttendanceService {
         final querySnapshot = await _firestore
             .collection('attendance')
             .where('userId', isEqualTo: user.uid)
-            .orderBy('createdAt', descending: true)
             .get();
 
-        return querySnapshot.docs
+        final dailyRecords = querySnapshot.docs
             .map((doc) => DailyAttendance.fromFirestore(doc.data()))
             .where((d) => d.date.isNotEmpty)
             .toList();
+        dailyRecords.sort((a, b) => b.date.compareTo(a.date));
+        return dailyRecords;
       } catch (e) {
         return [];
       }
@@ -1493,13 +1587,16 @@ class AttendanceService {
           .where('userId', isEqualTo: user.uid)
           .get();
 
-      final dailyRecords = firebaseRecords.docs.map((doc) {
-        final data = doc.data();
-        if (data['date'] != null) {
-          return DailyAttendance.fromFirestore(data);
-        }
-        return null;
-      }).whereType<DailyAttendance>().toList();
+      final dailyRecords = firebaseRecords.docs
+          .map((doc) {
+            final data = doc.data();
+            if (data['date'] != null) {
+              return DailyAttendance.fromFirestore(data);
+            }
+            return null;
+          })
+          .whereType<DailyAttendance>()
+          .toList();
 
       dailyRecords.sort((a, b) => b.date.compareTo(a.date));
 
@@ -1510,47 +1607,55 @@ class AttendanceService {
   }
 
   List<DailyAttendance> _groupRecordsByDay(List<AttendanceRecord> records) {
-      final groups = <String, List<AttendanceRecord>>{};
-      for (var record in records) {
-        final date = record.timestamp.toIso8601String().split('T')[0];
-        if (!groups.containsKey(date)) {
-          groups[date] = [];
-        }
-        groups[date]!.add(record);
+    final groups = <String, List<AttendanceRecord>>{};
+    for (var record in records) {
+      final date = record.timestamp.toIso8601String().split('T')[0];
+      if (!groups.containsKey(date)) {
+        groups[date] = [];
       }
+      groups[date]!.add(record);
+    }
 
-      final dailyList = <DailyAttendance>[];
-      groups.forEach((date, dayRecords) {
-        // Create ad-hoc DailyAttendance from local records
-        dayRecords.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-        final events = dayRecords
-            .map(
-              (r) => {
-                'type': r.type,
-                'time': r.timestamp.toIso8601String(),
-                'confidence': r.confidence,
-                if (r.latitude != null && r.longitude != null)
-                  'latitude': r.latitude,
-                if (r.latitude != null && r.longitude != null)
-                  'longitude': r.longitude,
-              },
-            )
-            .toList();
+    final dailyList = <DailyAttendance>[];
+    groups.forEach((date, dayRecords) {
+      // Create ad-hoc DailyAttendance from local records
+      dayRecords.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      final events = dayRecords
+          .map(
+            (r) => {
+              'type': r.type,
+              'time': r.timestamp.toIso8601String(),
+              'confidence': r.confidence,
+              if (r.latitude != null && r.longitude != null)
+                'latitude': r.latitude,
+              if (r.latitude != null && r.longitude != null)
+                'longitude': r.longitude,
+            },
+          )
+          .toList();
 
-        final firstIn = dayRecords.firstWhere((r) => r.type == 'check_in', orElse: () => dayRecords.first);
-        final lastOut = dayRecords.lastWhere((r) => r.type == 'check_out', orElse: () => dayRecords.last);
-        
-        dailyList.add(DailyAttendance(
+      final firstIn = dayRecords.firstWhere(
+        (r) => r.type == 'check_in',
+        orElse: () => dayRecords.first,
+      );
+      final lastOut = dayRecords.lastWhere(
+        (r) => r.type == 'check_out',
+        orElse: () => dayRecords.last,
+      );
+
+      dailyList.add(
+        DailyAttendance(
           date: date,
           checkInTime: firstIn.type == 'check_in' ? firstIn.timestamp : null,
           checkoutTime: lastOut.type == 'check_out' ? lastOut.timestamp : null,
           events: events,
           isPresent: true,
-        ));
-      });
+        ),
+      );
+    });
 
-      dailyList.sort((a, b) => b.date.compareTo(a.date));
-      return dailyList;
+    dailyList.sort((a, b) => b.date.compareTo(a.date));
+    return dailyList;
   }
 
   List<AttendanceRecord> getAttendanceByPerson(String personId) {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/app_update_service.dart';
+import 'services/app_permission_service.dart';
 import 'services/attendance_service.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
@@ -84,6 +85,11 @@ class _MyAppState extends State<MyApp> {
 
       // 1. Initialize Notification Service (non-blocking)
       NotificationService().initialize().catchError((e) => debugPrint('Notification init warning: $e'));
+
+      // 2. Ask for core app permissions early (non-blocking)
+      AppPermissionService.instance
+          .requestStartupPermissions()
+          .catchError((e) => debugPrint('Permission init warning: $e'));
 
       // 3. Initialize Attendance Service (non-blocking)
       AttendanceService().init().timeout(const Duration(seconds: 5)).catchError((e) => debugPrint('Attendance init warning: $e'));
@@ -174,5 +180,4 @@ class _MyAppState extends State<MyApp> {
     );
   }
 }
-
 

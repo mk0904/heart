@@ -17,10 +17,12 @@ class IosCloudRegisterFaceScreen extends StatefulWidget {
   const IosCloudRegisterFaceScreen({super.key});
 
   @override
-  State<IosCloudRegisterFaceScreen> createState() => _IosCloudRegisterFaceScreenState();
+  State<IosCloudRegisterFaceScreen> createState() =>
+      _IosCloudRegisterFaceScreenState();
 }
 
-class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen> {
+class _IosCloudRegisterFaceScreenState
+    extends State<IosCloudRegisterFaceScreen> {
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   int _cameraIndex = 0;
@@ -29,7 +31,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
   final FaceDetectionService _faceDetectionService = FaceDetectionService();
   final AttendanceService _attendanceService = AttendanceService();
   final FirebaseAuthService _authService = FirebaseAuthService();
-  
+
   // Real-time face detection
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
@@ -104,9 +106,9 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
     } catch (e) {
       print('Error initializing camera: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Camera error: $e')));
       }
     }
   }
@@ -123,9 +125,10 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
     _controller = CameraController(
       _cameras![cameraIndex],
       ResolutionPreset.medium,
-      enableAudio: false, // Ensure audio is disabled to prevent mic permission issues
-      imageFormatGroup: Platform.isAndroid 
-          ? ImageFormatGroup.nv21 
+      enableAudio:
+          false, // Ensure audio is disabled to prevent mic permission issues
+      imageFormatGroup: Platform.isAndroid
+          ? ImageFormatGroup.nv21
           : ImageFormatGroup.bgra8888,
     );
 
@@ -142,9 +145,9 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
     } catch (e) {
       print('Error switching camera: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Camera error: $e')));
       }
     }
   }
@@ -163,7 +166,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
           if (inputImage == null) return;
 
           final faces = await _faceDetector.processImage(inputImage);
-          
+
           if (mounted) {
             setState(() {
               _detectedFace = faces.isNotEmpty ? faces.first : null;
@@ -191,42 +194,46 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
 
     final camera = _cameras![_cameraIndex];
     final sensorOrientation = camera.sensorOrientation;
-    
+
     // On iOS, the image orientation is different
     // We need to properly calculate the rotation based on device orientation and camera sensor
     InputImageRotation? rotation;
     if (Platform.isIOS) {
       rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
     } else if (Platform.isAndroid) {
-      var rotationCompensation = _orientations[_controller!.value.deviceOrientation];
+      var rotationCompensation =
+          _orientations[_controller!.value.deviceOrientation];
       if (rotationCompensation == null) return null;
       if (camera.lensDirection == CameraLensDirection.front) {
         // front-facing
         rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
       } else {
         // back-facing
-        rotationCompensation = (sensorOrientation - rotationCompensation + 360) % 360;
+        rotationCompensation =
+            (sensorOrientation - rotationCompensation + 360) % 360;
       }
       rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
     }
-    
+
     if (rotation == null) return null;
 
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    
+
     // iOS often uses bgra8888, Android often uses yuv420
     // Validate that format is supported
-    if (format == null || 
-        (Platform.isAndroid && format != InputImageFormat.nv21 && format != InputImageFormat.yv12) || 
+    if (format == null ||
+        (Platform.isAndroid &&
+            format != InputImageFormat.nv21 &&
+            format != InputImageFormat.yv12) ||
         (Platform.isIOS && format != InputImageFormat.bgra8888)) {
-          // If format is not standard, we might need more complex conversion or just skip
-          // However, for basic cases:
-          if (format == null) return null;
+      // If format is not standard, we might need more complex conversion or just skip
+      // However, for basic cases:
+      if (format == null) return null;
     }
 
     // Since we're just doing detection, we can pass the bytes directly
     // Note: This requires the latest google_mlkit_commons
-    
+
     // For simplicity in this fix, we'll try the standard plane concatenation
     // InputImagePlaneMetadata removed as it's not needed/supported in this version
 
@@ -298,7 +305,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
       final image = await _controller!.takePicture();
       final imageFile = File(image.path);
       final imageBytes = await imageFile.readAsBytes();
-      
+
       // Decode image to handle orientation/EXIF automatically
       final decodedImage = img.decodeImage(imageBytes);
 
@@ -309,7 +316,8 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
       // Save the normalized (rotated) image to a temp file for consistent detection
       // This strips strict EXIF rotation tags that might confuse ML Kit on iOS
       final tempDir = Directory.systemTemp;
-      final fixedPath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_fixed.jpg';
+      final fixedPath =
+          '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_fixed.jpg';
       final fixedFile = File(fixedPath);
       await fixedFile.writeAsBytes(img.encodeJpg(decodedImage));
 
@@ -320,12 +328,17 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
       if (face == null) {
         // Clean up temp file
         if (await fixedFile.exists()) await fixedFile.delete();
-        throw Exception('No face detected. Please ensure your face is clearly visible.');
+        throw Exception(
+          'No face detected. Please ensure your face is clearly visible.',
+        );
       }
 
       // Crop face (using the same decodedImage which matches the fixed file pixels)
-      final croppedFace = await _faceDetectionService.cropFace(decodedImage, face);
-      
+      final croppedFace = await _faceDetectionService.cropFace(
+        decodedImage,
+        face,
+      );
+
       // Clean up temp file
       if (await fixedFile.exists()) await fixedFile.delete();
 
@@ -341,7 +354,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
         await _attendanceService.registerPersonWithFirebase(
           name: _userName!,
           employeeId: _userUid!,
-          faceEmbedding: null,
+          faceEmbedding: const <double>[],
           faceImageFile: regFaceFile,
         );
       } finally {
@@ -361,10 +374,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
       print('Registration error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
         // Restart live feed on error
         _startLiveFeed();
@@ -405,7 +415,8 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final size = constraints.biggest;
-                      var scale = size.aspectRatio * _controller!.value.aspectRatio;
+                      var scale =
+                          size.aspectRatio * _controller!.value.aspectRatio;
 
                       // to prevent scaling down, invert the value
                       if (scale < 1) scale = 1 / scale;
@@ -418,15 +429,23 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                             child: _detectedFace != null
                                 ? LayoutBuilder(
                                     builder: (context, constraints) {
-                                      final previewSize = _controller!.value.previewSize;
-                                      if (previewSize == null) return const SizedBox();
-                                      
+                                      final previewSize =
+                                          _controller!.value.previewSize;
+                                      if (previewSize == null)
+                                        return const SizedBox();
+
                                       return CustomPaint(
                                         painter: AttendanceFaceOverlayPainter(
                                           face: _detectedFace!,
-                                          imageSize: Size(previewSize.height, previewSize.width),
+                                          imageSize: Size(
+                                            previewSize.height,
+                                            previewSize.width,
+                                          ),
                                           previewSize: constraints.biggest,
-                                          isFrontCamera: _cameras?[_cameraIndex].lensDirection == CameraLensDirection.front,
+                                          isFrontCamera:
+                                              _cameras?[_cameraIndex]
+                                                  .lensDirection ==
+                                              CameraLensDirection.front,
                                         ),
                                       );
                                     },
@@ -438,7 +457,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                     },
                   ),
                 ),
-                
+
                 // Processing Overlay
                 if (_isProcessing)
                   Container(
@@ -447,22 +466,17 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircularProgressIndicator(
-                            color: Colors.white,
-                          ),
+                          CircularProgressIndicator(color: Colors.white),
                           SizedBox(height: 16),
                           Text(
                             'Processing...',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                            ),
+                            style: TextStyle(color: Colors.white, fontSize: 16),
                           ),
                         ],
                       ),
                     ),
                   ),
-                
+
                 // Instructions
                 if (!_isProcessing)
                   Positioned(
@@ -487,7 +501,7 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                       ),
                     ),
                   ),
-                
+
                 // Camera switch button
                 if (_cameras != null && _cameras!.length > 1 && !_isProcessing)
                   Positioned(
@@ -497,10 +511,13 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                       mini: true,
                       onPressed: _toggleCamera,
                       backgroundColor: Colors.black54,
-                      child: const Icon(Icons.cameraswitch, color: Colors.white),
+                      child: const Icon(
+                        Icons.cameraswitch,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                
+
                 // Capture button
                 if (!_isProcessing)
                   Positioned(
@@ -509,17 +526,22 @@ class _IosCloudRegisterFaceScreenState extends State<IosCloudRegisterFaceScreen>
                     right: 0,
                     child: Center(
                       child: FloatingActionButton(
-                        onPressed: _detectedFace != null ? _captureAndRegister : null,
-                        backgroundColor: _detectedFace != null ? AppTheme.primary : Colors.grey,
-                        child: const Icon(Icons.camera_alt, color: Colors.white),
+                        onPressed: _detectedFace != null
+                            ? _captureAndRegister
+                            : null,
+                        backgroundColor: _detectedFace != null
+                            ? AppTheme.primary
+                            : Colors.grey,
+                        child: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
               ],
             )
-          : const Center(
-              child: CircularProgressIndicator(),
-            ),
+          : const Center(child: CircularProgressIndicator()),
     );
   }
 }

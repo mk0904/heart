@@ -7,10 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/app_permission_service.dart';
 import '../services/attendance_service.dart';
+import '../services/cloud_face_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../theme/app_theme.dart';
 import 'attendance_webview_modal.dart';
+import 'cloud_mark_attendance_screen.dart';
+import 'cloud_register_face_screen.dart';
 import 'mark_attendance_screen.dart';
 import 'register_face_screen.dart';
 
@@ -25,8 +29,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   final AttendanceService _attendanceService = AttendanceService();
 
   /// Native camera + on-device model (Android reference app). iOS keeps webview flow.
-  bool get _useNativeAndroidAttendance =>
-      !kIsWeb && Platform.isAndroid;
+  bool get _useNativeAndroidAttendance => !kIsWeb && Platform.isAndroid;
+  bool get _useCloudFaceBackend => CloudFaceService.isConfigured;
   final FirebaseAuthService _authService = FirebaseAuthService();
   final ScrollController _scrollController = ScrollController();
   bool _isEnrolled = false;
@@ -36,6 +40,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   String _historyFilter = 'all'; // 'all', 'check-in', 'check-out'
   List<Map<String, dynamic>> _historyRecords = [];
   bool _isLoadingHistory = false;
+
   /// From Firestore `users/{uid}.faceImageUrl` after registration upload.
   String? _faceImageUrl;
 
@@ -43,7 +48,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   // Eligibility State
   bool _isCheckingEligibility = true;
-  bool _isEligible = false;
+  bool _canCheckInAction = false;
+  bool _canCheckOutAction = false;
   String? _eligibilityMessage;
 
   /// College schedule from Firebase (`startTime`/`endTime` as int hour or `"HH:mm"` 24h string).
@@ -84,7 +90,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final user = await _authService.getCurrentUser();
       if (user != null) {
@@ -95,10 +101,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           // Check current check-in status
           _attendanceService.isCurrentlyCheckedIn(),
         ]);
-        
+
         final userDoc = results[0] as DocumentSnapshot;
         final isCheckedIn = results[1] as bool;
-        
+
         bool hasRegistration = false;
         String? faceUrl;
         if (userDoc.exists) {
@@ -106,7 +112,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           hasRegistration = data?['faceRegistered'] ?? false;
           faceUrl = data?['faceImageUrl'] as String?;
         }
-        
+
         if (mounted) {
           setState(() {
             _isEnrolled = hasRegistration;
@@ -137,23 +143,23 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _loadHistoryRecords() async {
     if (_isLoadingHistory) return; // Prevent multiple simultaneous loads
-    
+
     setState(() {
       _isLoadingHistory = true;
     });
-    
+
     try {
       final allRecords = await _attendanceService.getAttendanceHistory();
-      final filterValue = _historyFilter == 'check-in' 
-          ? 'check_in' 
-          : _historyFilter == 'check-out' 
-              ? 'check_out' 
-              : _historyFilter;
-              
+      final filterValue = _historyFilter == 'check-in'
+          ? 'check_in'
+          : _historyFilter == 'check-out'
+          ? 'check_out'
+          : _historyFilter;
+
       final filtered = _historyFilter == 'all'
           ? allRecords
           : allRecords.where((r) => r['type'] == filterValue).toList();
-          
+
       if (mounted) {
         setState(() {
           _historyRecords = filtered;
@@ -219,61 +225,57 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _checkEligibility() async {
     if (!mounted) return;
-    
+
     setState(() {
       _isCheckingEligibility = true;
       _eligibilityMessage = null;
     });
 
     try {
-      // 1. Check Time
-      bool isTimeValid;
-      String timeErrorMsg;
+      final isCheckInTimeValid = await _attendanceService.isCheckInAllowed();
+      final isCheckOutTimeValid = await _attendanceService.isCheckOutAllowed();
 
-      if (_isCheckedIn) {
-         // User is checked in, so next action is Check Out
-         isTimeValid = await _attendanceService.isCheckOutAllowed();
-         timeErrorMsg = "Check-out allowed only after college hours"; 
-      } else {
-         // User is checked out, so next action is Check In
-         isTimeValid = await _attendanceService.isCheckInAllowed();
-         timeErrorMsg = "Check-in allowed only before college start time";
-      }
-
-      if (!isTimeValid) {
-        if (mounted) {
-          setState(() {
-            _isEligible = false;
-            _eligibilityMessage = timeErrorMsg;
-            _isCheckingEligibility = false;
-          });
-        }
-        return;
-      }
-
-      // 2. Check Location
-      // We use a shorter timeout or cached location if possible, 
-      // but for now we'll just await the standard check.
       final geofenceResult = await _attendanceService.validateGeofence();
-      
+      final isLocationValid = geofenceResult['valid'] == true;
+      final canCheckIn = isLocationValid && isCheckInTimeValid && !_isCheckedIn;
+      final canCheckOut = isLocationValid && isCheckOutTimeValid;
+
       if (mounted) {
         setState(() {
-          _isEligible = geofenceResult['valid'];
-          _eligibilityMessage = geofenceResult['valid'] 
-              ? null 
-              : (geofenceResult['message'] ?? "Outside college campus");
+          _canCheckInAction = canCheckIn;
+          _canCheckOutAction = canCheckOut;
+          _eligibilityMessage = _eligibilityMessageForActions(
+            isLocationValid: isLocationValid,
+            locationMessage: geofenceResult['message']?.toString(),
+            isCheckInTimeValid: isCheckInTimeValid,
+            isCheckOutTimeValid: isCheckOutTimeValid,
+          );
           _isCheckingEligibility = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isEligible = false;
+          _canCheckInAction = false;
+          _canCheckOutAction = false;
           _eligibilityMessage = "Unable to verify location";
           _isCheckingEligibility = false;
         });
       }
     }
+  }
+
+  String? _eligibilityMessageForActions({
+    required bool isLocationValid,
+    required bool isCheckInTimeValid,
+    required bool isCheckOutTimeValid,
+    String? locationMessage,
+  }) {
+    if (!isLocationValid) {
+      return locationMessage ?? 'You are not in the bounded area for marking attendance.';
+    }
+    if (isCheckInTimeValid || isCheckOutTimeValid) return null;
+    return 'Check-in is allowed before college start time. Check-out is allowed after college hours.';
   }
 
   @override
@@ -294,7 +296,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             children: [
               // Header
               _buildHeader(),
-              
+
               // Content
               Expanded(
                 child: _isLoading
@@ -321,13 +323,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                     const SizedBox(height: AppTheme.spacingSM),
                                   _buildActionsCard(),
                                   const SizedBox(height: AppTheme.spacingLG),
-                                  
+
                                   // History Section
                                   _buildHistorySection(),
                                 ]),
                               ),
                             ),
-                            
+
                             const SliverToBoxAdapter(
                               child: SizedBox(height: 90),
                             ),
@@ -360,6 +362,36 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleRegisterFace() async {
+    final hasLocationPermission =
+        await _ensureLocationPermissionForFaceRegistration();
+    if (!hasLocationPermission) return;
+    if (!mounted) return;
+
+    if (_useCloudFaceBackend) {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const CloudRegisterFaceScreen(),
+        ),
+      );
+      if (result == true) {
+        await _checkEnrollmentStatus();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Face registered successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     if (_useNativeAndroidAttendance) {
       final result = await Navigator.push<bool>(
         context,
@@ -373,7 +405,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               content: const Text('Face registered successfully!'),
               backgroundColor: AppTheme.success,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           );
         }
@@ -382,12 +416,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     final position = await _getLocation();
+    if (!mounted) return;
 
     final result = await Navigator.push<bool>(
       context,
       PageRouteBuilder(
         opaque: false,
-        pageBuilder: (context, _, __) => AttendanceWebViewModal(
+        pageBuilder: (context, _, _) => AttendanceWebViewModal(
           flowType: WebFlowType.register,
           position: position,
         ),
@@ -402,14 +437,141 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             content: const Text('Face registered successfully!'),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
     }
   }
 
+  Future<bool> _ensureLocationPermissionForFaceRegistration() async {
+    final status = await Permission.locationWhenInUse.status;
+    if (status.isGranted) return true;
+
+    final requestStatus =
+        await AppPermissionService.instance.requestLocationWhenInUse();
+    if (requestStatus.isGranted) return true;
+    if (!mounted) return false;
+
+    if (requestStatus.isPermanentlyDenied) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Location permission needed'),
+          content: const Text(
+            'Please allow location permission in Settings to register your face for attendance.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Location permission is required. Please allow it.',
+          ),
+          backgroundColor: AppTheme.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+
+    return false;
+  }
+
+  bool _historyFilterAccepts(String type) {
+    if (_historyFilter == 'all') return true;
+    if (_historyFilter == 'check-in') return type == 'check_in';
+    if (_historyFilter == 'check-out') return type == 'check_out';
+    return type == _historyFilter;
+  }
+
+  void _applyCloudAttendanceResult(
+    Map<String, dynamic>? result, {
+    required bool isCheckIn,
+  }) {
+    if (result == null || result['matched'] != true) return;
+
+    final rawEvent = result['event'];
+    final event = rawEvent is Map
+        ? Map<String, dynamic>.from(rawEvent)
+        : <String, dynamic>{
+            'type': isCheckIn ? 'check_in' : 'check_out',
+            'time': DateTime.now().toIso8601String(),
+            'confidence': result['confidence'] ?? 1.0,
+          };
+    final type = (event['type'] ?? (isCheckIn ? 'check_in' : 'check_out'))
+        .toString();
+
+    setState(() {
+      _isCheckedIn = isCheckIn;
+      if (_historyFilterAccepts(type)) {
+        final exists = _historyRecords.any(
+          (record) =>
+              record['type'] == event['type'] &&
+              record['time'] == event['time'],
+        );
+        if (!exists) {
+          _historyRecords = [event, ..._historyRecords];
+        }
+      }
+    });
+  }
+
   Future<void> _handleCheckIn() async {
+    if (_useCloudFaceBackend) {
+      final result = await Navigator.push<Map<String, dynamic>>(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const CloudMarkAttendanceScreen(isCheckIn: true),
+        ),
+      );
+      if (result != null && result['matched'] == true) {
+        if (mounted) {
+          _applyCloudAttendanceResult(result, isCheckIn: true);
+        }
+        Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
+        _checkEligibility();
+        Future.delayed(const Duration(seconds: 2), () async {
+          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+          if (mounted && confirmed != _isCheckedIn) {
+            setState(() => _isCheckedIn = confirmed);
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Checked in successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     if (_useNativeAndroidAttendance) {
       final result = await Navigator.push<bool>(
         context,
@@ -437,7 +599,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               content: const Text('Checked in successfully!'),
               backgroundColor: AppTheme.success,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           );
         }
@@ -480,7 +644,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             content: const Text('Checked in successfully!'),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -488,6 +654,42 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handleCheckOut() async {
+    if (_useCloudFaceBackend) {
+      final result = await Navigator.push<Map<String, dynamic>>(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const CloudMarkAttendanceScreen(isCheckIn: false),
+        ),
+      );
+      if (result != null && result['matched'] == true) {
+        if (mounted) {
+          _applyCloudAttendanceResult(result, isCheckIn: false);
+        }
+        Future.delayed(const Duration(milliseconds: 600), _loadHistoryRecords);
+        _checkEligibility();
+        Future.delayed(const Duration(seconds: 2), () async {
+          final confirmed = await _attendanceService.isCurrentlyCheckedIn();
+          if (mounted && confirmed != _isCheckedIn) {
+            setState(() => _isCheckedIn = confirmed);
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Checked out successfully!'),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     if (_useNativeAndroidAttendance) {
       final result = await Navigator.push<bool>(
         context,
@@ -515,7 +717,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               content: const Text('Checked out successfully!'),
               backgroundColor: AppTheme.success,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           );
         }
@@ -558,7 +762,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             content: const Text('Checked out successfully!'),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -623,7 +829,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-
   Widget _buildScheduleInfoCard() {
     if (_collegeStartHour == null || _collegeEndHour == null) {
       return const SizedBox.shrink();
@@ -675,7 +880,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ),
                   TextSpan(
                     text: ' · ',
-                    style: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.7)),
+                    style: TextStyle(
+                      color: AppTheme.textSecondary.withValues(alpha: 0.7),
+                    ),
                   ),
                   const TextSpan(text: 'Check-out from '),
                   TextSpan(
@@ -737,9 +944,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             children: [
               _buildRegisteredFaceAvatar(),
               const SizedBox(width: AppTheme.spacingBase),
-              Expanded(
-                child: _buildMarkAttendanceButton(),
-              ),
+              Expanded(child: _buildMarkAttendanceButton()),
             ],
           ),
         ),
@@ -818,7 +1023,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               );
             },
-            errorBuilder: (context, error, stackTrace) => _faceAvatarPlaceholder(),
+            errorBuilder: (context, error, stackTrace) =>
+                _faceAvatarPlaceholder(),
           )
         : _faceAvatarPlaceholder();
 
@@ -904,11 +1110,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         ),
         const SizedBox(height: AppTheme.spacingSM),
-        
+
         // Filter Pills
         _buildFilterPills(),
         const SizedBox(height: AppTheme.spacingMD),
-        
+
         // History Records
         _isLoadingHistory
             ? const Center(
@@ -918,15 +1124,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               )
             : _historyRecords.isEmpty
-                ? _buildEmptyHistoryState()
-                : Column(
-                    children: _historyRecords.map((record) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: AppTheme.spacingMD),
-                        child: _buildHistoryRecordCard(record),
-                      );
-                    }).toList(),
-                  ),
+            ? _buildEmptyHistoryState()
+            : Column(
+                children: _historyRecords.map((record) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: AppTheme.spacingMD),
+                    child: _buildHistoryRecordCard(record),
+                  );
+                }).toList(),
+              ),
       ],
     );
   }
@@ -934,17 +1140,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _buildFilterPills() {
     return Row(
       children: [
-        Expanded(
-          child: _buildFilterPill('all', 'All'),
-        ),
+        Expanded(child: _buildFilterPill('all', 'All')),
         const SizedBox(width: AppTheme.spacingSM),
-        Expanded(
-          child: _buildFilterPill('check-in', 'Check In'),
-        ),
+        Expanded(child: _buildFilterPill('check-in', 'Check In')),
         const SizedBox(width: AppTheme.spacingSM),
-        Expanded(
-          child: _buildFilterPill('check-out', 'Check Out'),
-        ),
+        Expanded(child: _buildFilterPill('check-out', 'Check Out')),
       ],
     );
   }
@@ -1016,10 +1216,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             _historyFilter == 'all'
                 ? 'Attendance records will appear here once marked'
                 : 'No ${_historyFilter.replaceAll('-', ' ')} records found',
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textSecondary,
-            ),
+            style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
         ],
@@ -1093,7 +1290,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               _formatTime(timestamp),
                               style: TextStyle(
                                 fontSize: 13,
-                                color: AppTheme.textSecondary.withValues(alpha: 0.92),
+                                color: AppTheme.textSecondary.withValues(
+                                  alpha: 0.92,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1140,7 +1339,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   /// Compact square thumb for list rows (no IN/OUT overlay). [photoUrl] must be pre-validated.
-  Widget _historyThumbnail(String? photoUrl, bool isCheckIn, {required double size}) {
+  Widget _historyThumbnail(
+    String? photoUrl,
+    bool isCheckIn, {
+    required double size,
+  }) {
     final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
     if (photoUrl != null) {
       return ClipRRect(
@@ -1186,10 +1389,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: accent.withValues(alpha: 0.2),
-          width: 0.5,
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.2), width: 0.5),
       ),
       child: Icon(
         isCheckIn ? Icons.login_rounded : Icons.logout_rounded,
@@ -1206,12 +1406,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final isCheckIn = record['type'] == 'check_in';
     final timestamp = DateTime.parse(record['time'] as String);
     final photoUrl = _safeAttendanceImageUrl(record['photoUrl']);
-    final rawConf = record['confidence'];
-    double? confidence;
-    if (rawConf is num) confidence = rawConf.toDouble();
 
     final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
-    final typeLabel = isCheckIn ? 'Check-in' : 'Check-out';
 
     showModalBottomSheet<void>(
       context: context,
@@ -1275,7 +1471,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         const SizedBox(height: AppTheme.spacingMD),
                         if (photoUrl != null) ...[
                           ClipRRect(
-                            borderRadius: BorderRadius.circular(AppTheme.radiusBase),
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusBase,
+                            ),
                             child: AspectRatio(
                               aspectRatio: 4 / 3,
                               child: Image.network(
@@ -1296,43 +1494,48 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 },
                                 errorBuilder: (context, error, stackTrace) =>
                                     ColoredBox(
-                                  color: AppTheme.backgroundDark,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(AppTheme.spacingLG),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.hide_image_outlined,
-                                          size: 44,
-                                          color: AppTheme.textSecondary
-                                              .withValues(alpha: 0.5),
+                                      color: AppTheme.backgroundDark,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(
+                                          AppTheme.spacingLG,
                                         ),
-                                        const SizedBox(height: AppTheme.spacingSM),
-                                        Text(
-                                          "Couldn't load photo",
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppTheme.textSecondary
-                                                .withValues(alpha: 0.9),
-                                          ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.hide_image_outlined,
+                                              size: 44,
+                                              color: AppTheme.textSecondary
+                                                  .withValues(alpha: 0.5),
+                                            ),
+                                            const SizedBox(
+                                              height: AppTheme.spacingSM,
+                                            ),
+                                            Text(
+                                              "Couldn't load photo",
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppTheme.textSecondary
+                                                    .withValues(alpha: 0.9),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Check your connection or Storage access.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: AppTheme.textSecondary
+                                                    .withValues(alpha: 0.65),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Check your connection or Storage access.',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: AppTheme.textSecondary
-                                                .withValues(alpha: 0.65),
-                                          ),
-                                        ),
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                ),
                               ),
                             ),
                           ),
@@ -1345,8 +1548,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             ),
                             decoration: BoxDecoration(
                               color: AppTheme.backgroundDark,
-                              borderRadius:
-                                  BorderRadius.circular(AppTheme.radiusBase),
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusBase,
+                              ),
                               border: Border.all(color: AppTheme.borderLight),
                             ),
                             child: Column(
@@ -1354,16 +1558,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 Icon(
                                   Icons.photo_camera_outlined,
                                   size: 40,
-                                  color: AppTheme.textSecondary
-                                      .withValues(alpha: 0.45),
+                                  color: AppTheme.textSecondary.withValues(
+                                    alpha: 0.45,
+                                  ),
                                 ),
                                 const SizedBox(height: AppTheme.spacingSM),
                                 Text(
                                   'No verification photo for this record',
                                   style: TextStyle(
                                     fontSize: 13,
-                                    color: AppTheme.textSecondary
-                                        .withValues(alpha: 0.85),
+                                    color: AppTheme.textSecondary.withValues(
+                                      alpha: 0.85,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1372,27 +1578,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           const SizedBox(height: AppTheme.spacingLG),
                         ],
                         _detailTile(
-                          icon: Icons.label_outline_rounded,
-                          label: 'Type',
-                          value: typeLabel,
-                          valueColor: accent,
-                        ),
-                        _detailTile(
-                          icon: Icons.calendar_today_outlined,
-                          label: 'Date',
-                          value: _formatDate(timestamp),
-                        ),
-                        _detailTile(
                           icon: Icons.schedule_rounded,
                           label: 'Time',
                           value: _formatTime(timestamp),
+                          valueColor: accent,
                         ),
-                        if (confidence != null)
-                          _detailTile(
-                            icon: Icons.verified_user_outlined,
-                            label: 'Match confidence',
-                            value: _formatConfidenceLabel(confidence),
-                          ),
                         const SizedBox(height: AppTheme.spacingLG),
                         SizedBox(
                           width: double.infinity,
@@ -1403,8 +1593,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               foregroundColor: AppTheme.white,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(AppTheme.radiusBase),
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusBase,
+                                ),
                               ),
                             ),
                             child: const Text(
@@ -1476,24 +1667,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  String _formatConfidenceLabel(double confidence) {
-    if (confidence >= 0 && confidence <= 1) {
-      return '${(confidence * 100).clamp(0, 100).toStringAsFixed(0)}%';
-    }
-    return confidence.toStringAsFixed(2);
-  }
-
   String _formatDate(DateTime dateTime) {
     final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${weekdays[dateTime.weekday - 1]}, ${months[dateTime.month - 1]} ${dateTime.day}, ${dateTime.year}';
   }
 
   String _formatTime(DateTime dateTime) {
-    final hour = dateTime.hour > 12 ? dateTime.hour - 12 : (dateTime.hour == 0 ? 12 : dateTime.hour);
+    final hour = dateTime.hour > 12
+        ? dateTime.hour - 12
+        : (dateTime.hour == 0 ? 12 : dateTime.hour);
     final minute = dateTime.minute.toString().padLeft(2, '0');
     final period = dateTime.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
@@ -1526,56 +1722,35 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Widget _buildMarkAttendanceButton() {
-    final buttonText = _isCheckedIn ? 'Check Out' : 'Check In';
-    final buttonIcon = _isCheckedIn ? Icons.logout : Icons.login;
-    
-    // Determine button state
-    final isEnabled = !_isCheckingEligibility && _isEligible;
-    final backgroundColor = _isCheckingEligibility 
-        ? AppTheme.textSecondary.withValues(alpha: 0.3)
-        : _isEligible
-            ? (_isCheckedIn ? Colors.orange : AppTheme.primary)
-            : AppTheme.textSecondary;
-            
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: isEnabled ? () async {
-              if (_isCheckedIn) {
-                await _handleCheckOut();
-              } else {
-                await _handleCheckIn();
-              }
-            } : null,
-            icon: _isCheckingEligibility 
-                ? const SizedBox(
-                    width: 20, 
-                    height: 20, 
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
-                  )
-                : Icon(buttonIcon, color: AppTheme.white, size: 20),
-            label: Text(
-              _isCheckingEligibility ? 'Verifying...' : buttonText,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.white,
+        Row(
+          children: [
+            Expanded(
+              child: _attendanceActionButton(
+                label: 'Check In',
+                icon: Icons.login,
+                enabled: _canCheckInAction,
+                backgroundColor: AppTheme.primary,
+                onPressed: _handleCheckIn,
               ),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: backgroundColor,
-              disabledBackgroundColor: backgroundColor.withValues(alpha: 0.5),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+            const SizedBox(width: AppTheme.spacingSM),
+            Expanded(
+              child: _attendanceActionButton(
+                label: 'Check Out',
+                icon: Icons.logout,
+                enabled: _canCheckOutAction,
+                backgroundColor: Colors.orange,
+                onPressed: _handleCheckOut,
               ),
-              elevation: 0,
             ),
-          ),
+          ],
         ),
-        if (!_isEligible && !_isCheckingEligibility && _eligibilityMessage != null)
+        if (!_canCheckInAction &&
+            !_canCheckOutAction &&
+            !_isCheckingEligibility &&
+            _eligibilityMessage != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Row(
@@ -1583,7 +1758,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               children: [
                 const Padding(
                   padding: EdgeInsets.only(top: 1),
-                  child: Icon(Icons.error_outline, size: 15, color: AppTheme.error),
+                  child: Icon(
+                    Icons.error_outline,
+                    size: 15,
+                    color: AppTheme.error,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -1601,6 +1780,51 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _attendanceActionButton({
+    required String label,
+    required IconData icon,
+    required bool enabled,
+    required Color backgroundColor,
+    required Future<void> Function() onPressed,
+  }) {
+    final effectiveColor = _isCheckingEligibility
+        ? AppTheme.textSecondary.withValues(alpha: 0.3)
+        : enabled
+        ? backgroundColor
+        : AppTheme.textSecondary;
+
+    return ElevatedButton.icon(
+      onPressed: !_isCheckingEligibility && enabled ? onPressed : null,
+      icon: _isCheckingEligibility
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Icon(icon, color: AppTheme.white, size: 19),
+      label: Text(
+        _isCheckingEligibility ? 'Checking...' : label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.white,
+        ),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: effectiveColor,
+        disabledBackgroundColor: effectiveColor.withValues(alpha: 0.5),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        elevation: 0,
+      ),
     );
   }
 }

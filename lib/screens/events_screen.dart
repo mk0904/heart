@@ -4,6 +4,7 @@ import 'dart:async';
 import '../theme/app_theme.dart';
 import '../services/firestore_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../utils/event_edit_policy.dart';
 import 'event_detail_screen.dart';
 import 'event_form_screen.dart';
 import '../utils/user_friendly_errors.dart';
@@ -27,7 +28,7 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
   bool _showFilters = false;
   List<Map<String, dynamic>> _events = [];
   List<Map<String, dynamic>> _filteredEvents = [];
-  String? _userCollegeId;
+  String? _userId;
   String? _selectedCollege;
   DateTime? _startDate;
   DateTime? _endDate;
@@ -106,7 +107,7 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
     try {
       // Get current user (for reference, but don't filter by default)
       final user = await _authService.getCurrentUser();
-      _userCollegeId = user?.collegeId;
+      _userId = user?.uid;
       
       // Fetch events from Firebase - only filter by college if explicitly selected
       // Show all events by default (no college filter)
@@ -180,13 +181,24 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
     return months[month - 1];
   }
 
-  void _handleEventPress(Map<String, dynamic> event) {
-    Navigator.push(
+  Future<void> _handleEventPress(Map<String, dynamic> event) async {
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => EventDetailScreen(event: event),
       ),
     );
+    if (result == true) _loadEvents();
+  }
+
+  Future<void> _handleEditEvent(Map<String, dynamic> event) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EventFormScreen(event: event),
+      ),
+    );
+    if (result == true) _loadEvents();
   }
 
   @override
@@ -685,6 +697,7 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
                     curve: Curves.easeOut,
                   );
                   Future.delayed(const Duration(milliseconds: 350), () {
+                    if (!mounted) return;
                     FocusScope.of(context).requestFocus(FocusNode());
                   });
                 },
@@ -748,6 +761,8 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
       if (img is Map) return (img['uri'] ?? img['url'] ?? '').toString();
       return '';
     }).where((url) => url.isNotEmpty).toList() ?? [];
+    final canEdit = canEditEvent(event, _userId);
+    final editableUntil = eventEditableUntil(event);
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppTheme.spacingMD),
@@ -793,6 +808,23 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
                           color: AppTheme.textSecondary,
                         ),
                       ),
+                      if (canEdit) ...[
+                        const SizedBox(width: AppTheme.spacingXS),
+                        IconButton(
+                          tooltip: 'Edit event',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            size: 18,
+                            color: AppTheme.primary,
+                          ),
+                          onPressed: () => _handleEditEvent(event),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: AppTheme.spacingXS),
@@ -806,6 +838,10 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (canEdit && editableUntil != null) ...[
+                    const SizedBox(height: AppTheme.spacingSM),
+                    _buildEditWindowChip(editableUntil),
+                  ],
                 ],
               ),
             ),
@@ -813,6 +849,49 @@ class _EventsScreenState extends State<EventsScreen> with SingleTickerProviderSt
         ],
       ),
     );
+  }
+
+  Widget _buildEditWindowChip(DateTime editableUntil) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryLight.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppTheme.primary.withValues(alpha: 0.22),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.schedule_outlined, size: 14, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            'Editable until ${_formatEditExpiry(editableUntil)}',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatEditExpiry(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final hour = local.hour > 12
+        ? local.hour - 12
+        : (local.hour == 0 ? 12 : local.hour);
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    final now = DateTime.now();
+    final sameDay =
+        now.year == local.year && now.month == local.month && now.day == local.day;
+    if (sameDay) return '$hour:$minute $period';
+    return '${local.day}/${local.month}, $hour:$minute $period';
   }
 
   Widget _buildImageSlider(List<String> imageUrls, VoidCallback onTap) {
@@ -1014,7 +1093,7 @@ class _EventImageSliderState extends State<_EventImageSlider> {
                         shape: BoxShape.circle,
                         color: _currentIndex == index
                             ? AppTheme.white
-                            : AppTheme.white.withOpacity(0.5),
+                            : AppTheme.white.withValues(alpha: 0.5),
                       ),
                     ),
                   ),

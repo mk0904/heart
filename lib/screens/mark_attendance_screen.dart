@@ -470,9 +470,10 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
       final geofenceResult = await _attendanceService.validateGeofence();
       if (!geofenceResult['valid'] && geofenceResult['message'] != 'College details not found') {
-        if (geofenceResult['message']?.contains('away from college') ?? false) {
-          throw Exception(geofenceResult['message'] ?? 'Location validation failed');
-        }
+        throw Exception(
+          geofenceResult['message'] ??
+              'You are not in the bounded area for marking attendance.',
+        );
       }
 
       final authUser = await _authService.getCurrentUser();

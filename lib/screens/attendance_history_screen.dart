@@ -352,18 +352,13 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
            ),
            const SizedBox(width: AppTheme.spacingMD),
            Expanded(
-             child: Column(
-               crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                 Text(
-                   isCheckIn ? 'Checked In' : 'Checked Out',
-                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                 ),
-                 Text(
-                   _formatTime(time),
-                   style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                 ),
-               ],
+             child: Text(
+               _formatTime(time),
+               style: const TextStyle(
+                 color: AppTheme.text,
+                 fontSize: 14,
+                 fontWeight: FontWeight.w600,
+               ),
              ),
            ),
         ],

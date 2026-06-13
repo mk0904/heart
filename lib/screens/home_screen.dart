@@ -76,10 +76,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _userId = user.uid;
       final allNotifications = await _firestoreService.getAllNotifications(_userId!);
       
-      // Filter to show only notifications (exclude invitations and circulars)
+      // Filter to show only notifications (exclude invitations)
       final filteredNotifications = allNotifications.where((notif) {
         final type = notif['type']?.toString().toLowerCase();
-        return type == null || type == 'push' || (type != 'invitation' && type != 'circular');
+        return type != 'invitation';
       }).toList();
       
       // Filter to only show unread notifications
@@ -227,10 +227,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _userId = user.uid;
         final allNotifications = await _firestoreService.getAllNotifications(user.uid);
         
-        // Filter to count only notifications (exclude invitations and circulars)
+        // Filter to count only notifications (exclude invitations)
         final filteredNotifications = allNotifications.where((notif) {
           final type = notif['type']?.toString().toLowerCase();
-          return type == null || type == 'push' || (type != 'invitation' && type != 'circular');
+          return type != 'invitation';
         }).toList();
         
         // Count unread notifications
@@ -271,10 +271,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final stream = _firestoreService.streamAllNotifications(_userId!);
       _notificationSubscription = stream.listen(
         (notifications) {
-          // Filter to count only notifications (exclude invitations and circulars)
+          // Filter to count only notifications (exclude invitations)
           final filteredNotifications = notifications.where((notif) {
             final type = notif['type']?.toString().toLowerCase();
-            return type == null || type == 'push' || (type != 'invitation' && type != 'circular');
+            return type != 'invitation';
           }).toList();
           
           // Sort by createdAt descending and take first 3

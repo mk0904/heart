@@ -659,11 +659,10 @@ class FirestoreService {
     try {
       QuerySnapshot snapshot;
       try {
-        // Try using recipients + createdAt index
+        // Avoid composite-index dependency; sort client-side below.
         snapshot = await _firestore
             .collection('notifications')
             .where('recipients', arrayContains: userId)
-            .orderBy('createdAt', descending: true)
             .limit(100)
             .get();
       } catch (e) {
@@ -672,7 +671,6 @@ class FirestoreService {
           snapshot = await _firestore
               .collection('notifications')
               .where('recipientId', isEqualTo: userId)
-              .orderBy('createdAt', descending: true)
               .limit(100)
               .get();
         } catch (e2) {
@@ -702,6 +700,12 @@ class FirestoreService {
         }
         return false;
       }).toList();
+
+      notifications.sort((a, b) {
+        return _notificationTimestampMillis(b['createdAt']).compareTo(
+          _notificationTimestampMillis(a['createdAt']),
+        );
+      });
       
       return notifications;
     } catch (e) {
@@ -713,11 +717,10 @@ class FirestoreService {
   Stream<List<Map<String, dynamic>>> streamAllNotifications(String userId) {
     Stream<QuerySnapshot> stream;
     try {
-      // Try using recipients + createdAt index
+      // Avoid composite-index dependency; sort client-side below.
       stream = _firestore
           .collection('notifications')
           .where('recipients', arrayContains: userId)
-          .orderBy('createdAt', descending: true)
           .limit(100)
           .snapshots();
     } catch (e) {
@@ -726,7 +729,6 @@ class FirestoreService {
         stream = _firestore
             .collection('notifications')
             .where('recipientId', isEqualTo: userId)
-            .orderBy('createdAt', descending: true)
             .limit(100)
             .snapshots();
       } catch (e2) {
@@ -757,9 +759,30 @@ class FirestoreService {
         }
         return false;
       }).toList();
+
+      notifications.sort((a, b) {
+        return _notificationTimestampMillis(b['createdAt']).compareTo(
+          _notificationTimestampMillis(a['createdAt']),
+        );
+      });
       
       return notifications;
     });
+  }
+
+  int _notificationTimestampMillis(dynamic value) {
+    if (value == null) return 0;
+    if (value is Timestamp) return value.millisecondsSinceEpoch;
+    if (value is DateTime) return value.millisecondsSinceEpoch;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is Map && value['seconds'] != null) {
+      return (value['seconds'] as num).toInt() * 1000;
+    }
+    if (value is String) {
+      return DateTime.tryParse(value)?.millisecondsSinceEpoch ?? 0;
+    }
+    return 0;
   }
 
   /// Stream notifications (real-time updates) - kept for backward compatibility

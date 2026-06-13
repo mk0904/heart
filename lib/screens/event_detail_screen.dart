@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/firebase_auth_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/event_edit_policy.dart';
 import '../widgets/image_full_screen_view.dart';
+import 'event_form_screen.dart';
 
 class EventDetailScreen extends StatefulWidget {
   final Map<String, dynamic> event;
@@ -16,7 +19,22 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   int _currentImageIndex = 0;
   final PageController _pageController = PageController();
+  final FirebaseAuthService _authService = FirebaseAuthService();
+  String? _currentUserId;
 
+  bool get _canEditEvent => canEditEvent(widget.event, _currentUserId);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final user = await _authService.getCurrentUser();
+    if (!mounted) return;
+    setState(() => _currentUserId = user?.uid);
+  }
 
   @override
   void dispose() {
@@ -49,6 +67,20 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   String _formatTime(String? timeString) {
     return timeString ?? 'TBA';
+  }
+
+  String _formatEditExpiry(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final hour = local.hour > 12
+        ? local.hour - 12
+        : (local.hour == 0 ? 12 : local.hour);
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    final now = DateTime.now();
+    final sameDay =
+        now.year == local.year && now.month == local.month && now.day == local.day;
+    if (sameDay) return '$hour:$minute $period';
+    return '${local.day}/${local.month}, $hour:$minute $period';
   }
 
   @override
@@ -141,10 +173,34 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 48), // Spacer for centering
+          SizedBox(
+            width: 48,
+            child: _canEditEvent
+                ? IconButton(
+                    tooltip: 'Edit event',
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      color: AppTheme.text,
+                      size: 22,
+                    ),
+                    onPressed: _openEditEvent,
+                  )
+                : null,
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _openEditEvent() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EventFormScreen(event: widget.event),
+      ),
+    );
+    if (!mounted) return;
+    if (result == true) Navigator.pop(context, true);
   }
 
   Widget _buildImageGallery(List<String> images) {
@@ -279,6 +335,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Widget _buildDetailsSection() {
+    final editableUntil = eventEditableUntil(widget.event);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLG),
       padding: const EdgeInsets.all(AppTheme.spacingLG),
@@ -300,6 +357,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               color: AppTheme.text,
             ),
           ),
+          if (_canEditEvent && editableUntil != null) ...[
+            const SizedBox(height: AppTheme.spacingSM),
+            _buildEditWindowChip(editableUntil),
+          ],
           
           // Event Description
           if (widget.event['description'] != null) ...[
@@ -393,6 +454,35 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 ),
               ],
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditWindowChip(DateTime editableUntil) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryLight.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppTheme.primary.withValues(alpha: 0.22),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.schedule_outlined, size: 14, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            'Editable until ${_formatEditExpiry(editableUntil)}',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.primary,
+            ),
           ),
         ],
       ),
