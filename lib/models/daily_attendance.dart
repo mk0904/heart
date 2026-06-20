@@ -39,13 +39,13 @@ class DailyAttendance {
     // Parse times from fields or events
     if (data['checkInTime'] != null) {
       try {
-        checkIn = DateTime.parse(data['checkInTime']);
+        checkIn = DateTime.parse(data['checkInTime']).toLocal();
       } catch (e) { /* ignore */ }
     }
     
     if (data['checkoutTime'] != null) {
       try {
-        checkOut = DateTime.parse(data['checkoutTime']);
+        checkOut = DateTime.parse(data['checkoutTime']).toLocal();
       } catch (e) { /* ignore */ }
     }
 
@@ -57,7 +57,7 @@ class DailyAttendance {
       );
       if (firstIn.isNotEmpty) {
         try {
-          checkIn = DateTime.parse(firstIn['time']);
+          checkIn = DateTime.parse(firstIn['time']).toLocal();
         } catch (e) { /* ignore */ }
       }
     }
@@ -69,7 +69,7 @@ class DailyAttendance {
       );
       if (lastOut.isNotEmpty) {
         try {
-          checkOut = DateTime.parse(lastOut['time']);
+          checkOut = DateTime.parse(lastOut['time']).toLocal();
         } catch (e) { /* ignore */ }
       }
     }

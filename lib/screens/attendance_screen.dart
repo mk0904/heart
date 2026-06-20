@@ -1018,7 +1018,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildHistoryRecordCard(Map<String, dynamic> record) {
     final isCheckIn = record['type'] == 'check_in';
-    final timestamp = DateTime.parse(record['time'] as String);
+    final timestamp = DateTime.parse(record['time'] as String).toLocal();
     final photoUrl = _safeAttendanceImageUrl(record['photoUrl']);
     final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
     final typeLabel = isCheckIn ? 'Check-in' : 'Check-out';
@@ -1184,7 +1184,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     Map<String, dynamic> record,
   ) {
     final isCheckIn = record['type'] == 'check_in';
-    final timestamp = DateTime.parse(record['time'] as String);
+    final timestamp = DateTime.parse(record['time'] as String).toLocal();
     final photoUrl = _safeAttendanceImageUrl(record['photoUrl']);
 
     final accent = isCheckIn ? AppTheme.success : AppTheme.warning;
@@ -1467,11 +1467,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   String _formatTime(DateTime dateTime) {
-    final hour = dateTime.hour > 12
-        ? dateTime.hour - 12
-        : (dateTime.hour == 0 ? 12 : dateTime.hour);
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+    final local = dateTime.isUtc ? dateTime.toLocal() : dateTime;
+    final hour = local.hour > 12
+        ? local.hour - 12
+        : (local.hour == 0 ? 12 : local.hour);
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
   }
 
