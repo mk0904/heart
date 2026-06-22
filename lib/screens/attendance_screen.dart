@@ -42,11 +42,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _canCheckOutAction = false;
   String? _eligibilityMessage;
 
-  /// College schedule from Firebase (`startTime`/`endTime` as int hour or `"HH:mm"` 24h string).
-  int? _collegeStartHour;
-  int? _collegeStartMinute;
-  int? _collegeEndHour;
-  int? _collegeEndMinute;
+
 
   @override
   void initState() {
@@ -56,7 +52,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _checkEnrollmentStatus();
     // Load history separately (non-blocking, can show loading state)
     _loadHistoryRecords();
-    _loadCollegeSchedule();
     // Check eligibility logic (Time & Location)
     _checkEligibility();
   }
@@ -169,49 +164,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     await Future.wait([
       _checkEnrollmentStatus(),
       _loadHistoryRecords(),
-      _loadCollegeSchedule(),
       _checkEligibility(),
     ]);
   }
 
-  Future<void> _loadCollegeSchedule() async {
-    try {
-      final details = await _attendanceService.getCollegeDetails();
-      if (!mounted) return;
-      setState(() {
-        if (details != null) {
-          _collegeStartHour = details['startHour'] as int?;
-          _collegeStartMinute = details['startMinute'] as int? ?? 0;
-          _collegeEndHour = details['endHour'] as int?;
-          _collegeEndMinute = details['endMinute'] as int? ?? 0;
-        } else {
-          _collegeStartHour = null;
-          _collegeStartMinute = null;
-          _collegeEndHour = null;
-          _collegeEndMinute = null;
-        }
-      });
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _collegeStartHour = null;
-          _collegeStartMinute = null;
-          _collegeEndHour = null;
-          _collegeEndMinute = null;
-        });
-      }
-    }
-  }
-
-  /// Formats 24h clock as 12h with minutes, e.g. `9:00 AM`, `2:30 PM`.
-  String _formatCollegeTime(int hour24, int minute) {
-    final h = hour24.clamp(0, 23);
-    final m = minute.clamp(0, 59);
-    final period = h >= 12 ? 'PM' : 'AM';
-    final displayH = h % 12 == 0 ? 12 : h % 12;
-    final mm = m.toString().padLeft(2, '0');
-    return '$displayH:$mm $period';
-  }
 
   Future<void> _checkEligibility() async {
     if (!mounted) return;
@@ -307,10 +263,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               ),
                               sliver: SliverList(
                                 delegate: SliverChildListDelegate([
-                                  _buildScheduleInfoCard(),
-                                  if (_collegeStartHour != null &&
-                                      _collegeEndHour != null)
-                                    const SizedBox(height: AppTheme.spacingSM),
                                   _buildActionsCard(),
                                   const SizedBox(height: AppTheme.spacingLG),
 
@@ -609,77 +561,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Widget _buildScheduleInfoCard() {
-    if (_collegeStartHour == null || _collegeEndHour == null) {
-      return const SizedBox.shrink();
-    }
-    final startH = _collegeStartHour!;
-    final startM = _collegeStartMinute ?? 0;
-    final endH = _collegeEndHour!;
-    final endM = _collegeEndMinute ?? 0;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spacingMD,
-        vertical: AppTheme.spacingSM,
-      ),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        borderRadius: BorderRadius.circular(AppTheme.radiusBase),
-        border: Border.all(color: AppTheme.borderLight, width: 0.5),
-        boxShadow: AppTheme.shadowSM,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(
-              Icons.schedule,
-              size: 16,
-              color: AppTheme.primary.withValues(alpha: 0.85),
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacingSM),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  color: AppTheme.textSecondary,
-                ),
-                children: [
-                  const TextSpan(text: 'Check-in ends '),
-                  TextSpan(
-                    text: _formatCollegeTime(startH, startM),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.text,
-                    ),
-                  ),
-                  TextSpan(
-                    text: ' · ',
-                    style: TextStyle(
-                      color: AppTheme.textSecondary.withValues(alpha: 0.7),
-                    ),
-                  ),
-                  const TextSpan(text: 'Check-out from '),
-                  TextSpan(
-                    text: _formatCollegeTime(endH, endM),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.text,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildActionsCard() {
     return Container(

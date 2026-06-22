@@ -39,9 +39,6 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
   bool _isBlinking = false;
   bool _canProcessStream = true;
   DateTime? _lastProcessTime;
-  Uint8List? _lastFrameBytes;
-  int _lastFrameWidth = 0;
-  int _lastFrameHeight = 0;
   String _feedbackText = 'Position your face in the circle';
   Position? _position;
 
@@ -194,11 +191,6 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
     if (controller == null || controller.value.isStreamingImages) return;
 
     controller.startImageStream((image) {
-      if (Platform.isIOS) {
-        _lastFrameBytes = Uint8List.fromList(image.planes[0].bytes);
-        _lastFrameWidth = image.width;
-        _lastFrameHeight = image.height;
-      }
       if (_isProcessing || _livenessVerified || !_canProcessStream) return;
       final now = DateTime.now();
       if (_lastProcessTime != null &&
@@ -318,29 +310,12 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
     final controller = _controller;
     if (controller == null) throw Exception('Camera is not ready.');
     
-    img.Image? decoded;
-
-    if (Platform.isIOS && _lastFrameBytes != null) {
-      final frameBytes = _lastFrameBytes!;
-      decoded = img.Image.fromBytes(
-        width: _lastFrameWidth,
-        height: _lastFrameHeight,
-        bytes: frameBytes.buffer,
-        order: img.ChannelOrder.bgra,
-      );
-      final sensorOrientation = controller.description.sensorOrientation;
-      decoded = img.copyRotate(decoded, angle: sensorOrientation);
-      if (controller.description.lensDirection == CameraLensDirection.front) {
-        decoded = img.flipHorizontal(decoded);
-      }
-    } else {
-      final shot = await controller.takePicture().timeout(
-        const Duration(seconds: 45),
-        onTimeout: () => throw TimeoutException('Camera capture timed out.'),
-      );
-      final bytes = await File(shot.path).readAsBytes();
-      decoded = img.decodeImage(bytes);
-    }
+    final shot = await controller.takePicture().timeout(
+      const Duration(seconds: 45),
+      onTimeout: () => throw TimeoutException('Camera capture timed out.'),
+    );
+    final bytes = await File(shot.path).readAsBytes();
+    final decoded = img.decodeImage(bytes);
     
     if (decoded == null) throw Exception('Could not read camera image.');
 

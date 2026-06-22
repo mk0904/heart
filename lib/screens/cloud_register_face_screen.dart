@@ -33,9 +33,6 @@ class _CloudRegisterFaceScreenState extends State<CloudRegisterFaceScreen> {
   bool _isInitialized = false;
   bool _isProcessing = false;
   bool _isDetecting = false;
-  Uint8List? _lastFrameBytes;
-  int _lastFrameWidth = 0;
-  int _lastFrameHeight = 0;
 
   Color get _statusColor =>
       _detectedFace == null ? AppTheme.warning : AppTheme.success;
@@ -101,11 +98,6 @@ class _CloudRegisterFaceScreenState extends State<CloudRegisterFaceScreen> {
     if (controller == null || controller.value.isStreamingImages) return;
 
     controller.startImageStream((image) async {
-      if (Platform.isIOS) {
-        _lastFrameBytes = Uint8List.fromList(image.planes[0].bytes);
-        _lastFrameWidth = image.width;
-        _lastFrameHeight = image.height;
-      }
       if (_isDetecting || _isProcessing) return;
       _isDetecting = true;
       try {
@@ -179,27 +171,11 @@ class _CloudRegisterFaceScreenState extends State<CloudRegisterFaceScreen> {
 
     img.Image? decoded;
 
-    if (Platform.isIOS && _lastFrameBytes != null) {
-      await _stopLiveFeed();
-      final frameBytes = _lastFrameBytes!;
-      decoded = img.Image.fromBytes(
-        width: _lastFrameWidth,
-        height: _lastFrameHeight,
-        bytes: frameBytes.buffer,
-        order: img.ChannelOrder.bgra,
-      );
-      final sensorOrientation = controller.description.sensorOrientation;
-      decoded = img.copyRotate(decoded, angle: sensorOrientation);
-      if (controller.description.lensDirection == CameraLensDirection.front) {
-        decoded = img.flipHorizontal(decoded);
-      }
-    } else {
-      await _stopLiveFeed();
-      await Future.delayed(const Duration(milliseconds: 250));
-      final shot = await controller.takePicture();
-      final bytes = await File(shot.path).readAsBytes();
-      decoded = img.decodeImage(bytes);
-    }
+    await _stopLiveFeed();
+    await Future.delayed(const Duration(milliseconds: 250));
+    final shot = await controller.takePicture();
+    final bytes = await File(shot.path).readAsBytes();
+    decoded = img.decodeImage(bytes);
 
     if (decoded == null) throw Exception('Could not read camera image.');
 
