@@ -97,6 +97,33 @@ exports.sendNotificationPush = onDocumentCreated(
   },
 );
 
+exports.onCircularCreated = onDocumentCreated(
+  {
+    document: "circulars/{circularId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const circular = snapshot.data() || {};
+    const circularId = event.params.circularId;
+
+    // Create a corresponding notification document in the notifications collection.
+    // This will trigger the sendNotificationPush function to send FCM push notifications.
+    await db.collection("notifications").add({
+      title: circular.title || "New Circular",
+      message: circular.message || circular.description || "",
+      type: "circular",
+      circularId: circularId,
+      recipients: circular.recipients || [],
+      read: false,
+      readBy: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  },
+);
+
 function collectRecipientIds(notification) {
   const ids = new Set();
   const recipients = notification.recipients;
