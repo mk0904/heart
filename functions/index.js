@@ -108,19 +108,48 @@ exports.onCircularCreated = onDocumentCreated(
 
     const circular = snapshot.data() || {};
     const circularId = event.params.circularId;
+    const recipientIds = collectRecipientIds(circular);
+    if (recipientIds.length === 0) return;
 
-    // Create a corresponding notification document in the notifications collection.
-    // This will trigger the sendNotificationPush function to send FCM push notifications.
-    await db.collection("notifications").add({
-      title: circular.title || "New Circular",
-      message: circular.message || circular.description || "",
+    const tokens = await getRecipientTokens(recipientIds);
+    if (tokens.length === 0) return;
+
+    const title = cleanText(circular.title) || "New Circular";
+    const body =
+      cleanText(circular.message) ||
+      cleanText(circular.description) ||
+      "";
+    const data = stringifyData({
+      id: circularId,
       type: "circular",
-      circularId: circularId,
-      recipients: circular.recipients || [],
-      read: false,
-      readBy: [],
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      title,
+      message: body,
+      circularId,
     });
+
+    for (const tokenBatch of chunk(tokens, 500)) {
+      await messaging.sendEachForMulticast({
+        tokens: tokenBatch,
+        notification: { title, body },
+        data,
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "heart_notifications",
+            sound: "default",
+            clickAction: "FLUTTER_NOTIFICATION_CLICK",
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+              category: "mark_read_category",
+            },
+          },
+        },
+      });
+    }
   },
 );
 
