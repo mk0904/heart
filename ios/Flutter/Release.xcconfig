@@ -2,3 +2,5 @@
 #include "Generated.xcconfig"
 
 ARCHS[sdk=iphonesimulator*] = x86_64
+IPHONEOS_DEPLOYMENT_TARGET = 16.0
+
