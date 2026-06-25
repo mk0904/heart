@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../theme/app_theme.dart';
@@ -8,6 +9,8 @@ import '../services/firestore_service.dart';
 import 'complete_profile_screen.dart';
 import '../services/firebase_storage_service.dart';
 import '../utils/user_friendly_errors.dart';
+import 'terms_of_service_screen.dart';
+import 'privacy_policy_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -37,6 +40,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
   List<DropdownMenuItem<String>> _collegeItems = [];
   File? _profileImage;
 
+  late TapGestureRecognizer _termsRecognizer;
+  late TapGestureRecognizer _privacyRecognizer;
+  late TapGestureRecognizer _agreeToTermsRecognizer;
+  late TapGestureRecognizer _andRecognizer;
+
   final List<Map<String, String>> _roleOptions = [
     {'label': 'Principal', 'value': 'principal'},
     {'label': 'Vice-Principal', 'value': 'vice-principal'},
@@ -50,6 +58,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
   void initState() {
     super.initState();
     _loadColleges();
+    _termsRecognizer = TapGestureRecognizer()..onTap = _openTermsOfService;
+    _privacyRecognizer = TapGestureRecognizer()..onTap = _openPrivacyPolicy;
+    _agreeToTermsRecognizer = TapGestureRecognizer()..onTap = _toggleAgreeToTerms;
+    _andRecognizer = TapGestureRecognizer()..onTap = _toggleAgreeToTerms;
   }
 
   @override
@@ -57,7 +69,29 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _termsRecognizer.dispose();
+    _privacyRecognizer.dispose();
+    _agreeToTermsRecognizer.dispose();
+    _andRecognizer.dispose();
     super.dispose();
+  }
+
+  void _openTermsOfService() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TermsOfServiceScreen()),
+    );
+  }
+
+  void _openPrivacyPolicy() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
+    );
+  }
+
+  void _toggleAgreeToTerms() {
+    setState(() => _agreeToTerms = !_agreeToTerms);
   }
 
   Future<void> _loadColleges() async {
@@ -442,38 +476,41 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() => _agreeToTerms = !_agreeToTerms);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: RichText(
-                            text: TextSpan(
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: AppTheme.text,
-                                height: 1.4,
-                              ),
-                              children: [
-                                const TextSpan(text: 'I agree to the '),
-                                TextSpan(
-                                  text: 'Terms of Service',
-                                  style: const TextStyle(
-                                    color: AppTheme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const TextSpan(text: ' and '),
-                                TextSpan(
-                                  text: 'Privacy Policy',
-                                  style: const TextStyle(
-                                    color: AppTheme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: RichText(
+                          text: TextSpan(
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.text,
+                              height: 1.4,
                             ),
+                            children: [
+                              TextSpan(
+                                text: 'I agree to the ',
+                                recognizer: _agreeToTermsRecognizer,
+                              ),
+                              TextSpan(
+                                text: 'Terms of Service',
+                                style: const TextStyle(
+                                  color: AppTheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                recognizer: _termsRecognizer,
+                              ),
+                              TextSpan(
+                                text: ' and ',
+                                recognizer: _andRecognizer,
+                              ),
+                              TextSpan(
+                                text: 'Privacy Policy',
+                                style: const TextStyle(
+                                  color: AppTheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                recognizer: _privacyRecognizer,
+                              ),
+                            ],
                           ),
                         ),
                       ),

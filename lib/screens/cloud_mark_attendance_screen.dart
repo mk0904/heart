@@ -13,6 +13,7 @@ import '../services/attendance_service.dart';
 import '../services/cloud_face_service.dart';
 import '../services/face_detection_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/true_time_service.dart';
 import '../theme/app_theme.dart';
 
 class CloudMarkAttendanceScreen extends StatefulWidget {
@@ -192,7 +193,7 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
 
     controller.startImageStream((image) {
       if (_isProcessing || _livenessVerified || !_canProcessStream) return;
-      final now = DateTime.now();
+      final now = TrueTimeService.now();
       if (_lastProcessTime != null &&
           now.difference(_lastProcessTime!).inMilliseconds < 200) {
         return;
@@ -320,7 +321,7 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
     if (decoded == null) throw Exception('Could not read camera image.');
 
     final fixedFile = File(
-      '${Directory.systemTemp.path}/cloud_att_${DateTime.now().millisecondsSinceEpoch}_fixed.jpg',
+      '${Directory.systemTemp.path}/cloud_att_${TrueTimeService.now().millisecondsSinceEpoch}_fixed.jpg',
     );
     await fixedFile.writeAsBytes(img.encodeJpg(decoded));
 
@@ -334,7 +335,7 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
     if (cropped == null) throw Exception('Could not crop face.');
 
     final faceFile = File(
-      '${Directory.systemTemp.path}/cloud_att_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      '${Directory.systemTemp.path}/cloud_att_${TrueTimeService.now().millisecondsSinceEpoch}.jpg',
     );
     await faceFile.writeAsBytes(
       Uint8List.fromList(img.encodeJpg(cropped, quality: 85)),
@@ -352,7 +353,7 @@ class _CloudMarkAttendanceScreenState extends State<CloudMarkAttendanceScreen> {
       if (user == null) throw Exception('Please sign in again.');
 
       faceFile = await _captureCroppedFace();
-      final date = DateTime.now().toIso8601String().split('T')[0];
+      final date = TrueTimeService.now().toIso8601String().split('T')[0];
       final type = widget.isCheckIn ? 'check_in' : 'check_out';
 
       final result = await _cloudFaceService.verifyAttendance(

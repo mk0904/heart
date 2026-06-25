@@ -13,6 +13,7 @@ import 'screens/welcome_screen.dart';
 import 'screens/complete_profile_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
+import 'services/true_time_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,6 +94,9 @@ class _MyAppState extends State<MyApp> {
 
       // 3. Initialize Attendance Service (non-blocking)
       AttendanceService().init().timeout(const Duration(seconds: 5)).catchError((e) => debugPrint('Attendance init warning: $e'));
+
+      // 3.5 Initialize TrueTimeService (non-blocking)
+      TrueTimeService().init().timeout(const Duration(seconds: 5)).catchError((e) => debugPrint('TrueTime init warning: $e'));
 
       // 4. Check Auth State
       final authService = FirebaseAuthService();

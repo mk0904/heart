@@ -11,6 +11,7 @@ import 'connectivity_service.dart';
 import 'firebase_auth_service.dart';
 import 'firestore_service.dart';
 import 'location_service.dart';
+import 'true_time_service.dart';
 
 /// Attendance now uses the cloud face backend on every platform.
 bool _useNativeAndroidAttendance() => false;
@@ -236,7 +237,7 @@ class AttendanceService {
             name: user.name,
             employeeId: user.uid,
             faceEmbedding: firebaseEmbedding,
-            registeredAt: DateTime.now(),
+            registeredAt: TrueTimeService.now(),
           );
 
           await _personsBox!.put(user.uid, person);
@@ -282,7 +283,7 @@ class AttendanceService {
     final user = await _authService.getCurrentUser();
     if (user == null) return false;
 
-    final now = DateTime.now();
+    final now = TrueTimeService.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     // final dateStr = todayStart.toIso8601String().split('T')[0];
 
@@ -436,7 +437,7 @@ class AttendanceService {
     final details = await getCollegeDetails();
     if (details == null) return true; // If no settings, allow anytime
 
-    final now = DateTime.now();
+    final now = TrueTimeService.now();
     final nowMins = now.hour * 60 + now.minute;
     final startMins =
         (details['startHour'] as int) * 60 +
@@ -452,7 +453,7 @@ class AttendanceService {
     final details = await getCollegeDetails();
     if (details == null) return true; // If no settings, allow anytime
 
-    final now = DateTime.now();
+    final now = TrueTimeService.now();
     final nowMins = now.hour * 60 + now.minute;
     final startMins =
         (details['startHour'] as int) * 60 +
@@ -467,7 +468,7 @@ class AttendanceService {
     final details = await getCollegeDetails();
     if (details == null) return true; // If no settings, allow anytime
 
-    final now = DateTime.now();
+    final now = TrueTimeService.now();
     final nowMins = now.hour * 60 + now.minute;
     final endMins =
         (details['endHour'] as int) * 60 + (details['endMinute'] as int? ?? 0);
@@ -552,7 +553,7 @@ class AttendanceService {
       final user = await _authService.getCurrentUser();
       if (user == null) return;
 
-      final now = DateTime.now();
+      final now = TrueTimeService.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
       // Get yesterday's date
@@ -671,7 +672,7 @@ class AttendanceService {
             'checkoutConfidence': 1.0,
             'autoCheckedOut': true,
             'type': 'check_out',
-            'updatedAt': DateTime.now().toIso8601String(),
+            'updatedAt': TrueTimeService.now().toIso8601String(),
           };
           if (lat != null && lng != null) {
             updatePayload['latitude'] = lat.toDouble();
@@ -688,7 +689,7 @@ class AttendanceService {
   /// Get today's attendance record for a user (if exists)
   Future<DocumentSnapshot?> _getTodayRecord(String userId) async {
     try {
-      final now = DateTime.now();
+      final now = TrueTimeService.now();
       final todayStart = DateTime(now.year, now.month, now.day);
       final todayEnd = todayStart.add(const Duration(days: 1));
 
@@ -740,7 +741,7 @@ class AttendanceService {
     if (trimmedPhoto.isEmpty) {
       throw Exception('Attendance photo URL is required.');
     }
-    final timestamp = DateTime.now();
+    final timestamp = TrueTimeService.now();
 
     // Validate Check-in/Check-out pairing logic
     // We need to check existing records to ensure proper sequence
@@ -1094,7 +1095,7 @@ class AttendanceService {
 
               final updateData = {
                 'events': existingEvents,
-                'updatedAt': DateTime.now().toIso8601String(),
+                'updatedAt': TrueTimeService.now().toIso8601String(),
               };
 
               if (lastCheckIn.isNotEmpty) {
@@ -1185,7 +1186,7 @@ class AttendanceService {
               recordData['checkoutConfidence'] = lastCheckOut['confidence'];
             }
 
-            recordData['createdAt'] = DateTime.now().toIso8601String();
+            recordData['createdAt'] = TrueTimeService.now().toIso8601String();
 
             await _firestore.collection('attendance').add(recordData);
 

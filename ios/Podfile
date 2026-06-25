@@ -50,7 +50,7 @@ post_install do |installer|
       
       # Ensure device builds never carry simulator architectures
       config.build_settings['EXCLUDED_ARCHS[sdk=iphoneos*]'] = 'i386 x86_64'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386 arm64'
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
       
       # Force deployment target to 16.0 to satisfy Xcode minimum requirements
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'

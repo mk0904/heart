@@ -7,6 +7,7 @@ import '../services/app_permission_service.dart';
 import '../services/attendance_service.dart';
 import '../services/cloud_face_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/true_time_service.dart';
 import '../theme/app_theme.dart';
 import 'cloud_mark_attendance_screen.dart';
 import 'cloud_register_face_screen.dart';
@@ -402,7 +403,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ? Map<String, dynamic>.from(rawEvent)
         : <String, dynamic>{
             'type': isCheckIn ? 'check_in' : 'check_out',
-            'time': DateTime.now().toIso8601String(),
+            'time': TrueTimeService.now().toIso8601String(),
             'confidence': result['confidence'] ?? 1.0,
           };
     final type = (event['type'] ?? (isCheckIn ? 'check_in' : 'check_out'))
