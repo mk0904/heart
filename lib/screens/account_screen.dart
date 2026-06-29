@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../services/firebase_auth_service.dart';
-import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'web_view_screen.dart';
 import 'support_screen.dart';
 import 'contact_us_screen.dart';
 import 'delete_account_screen.dart';
@@ -328,22 +327,32 @@ class _AccountScreenState extends State<AccountScreen> {
         id: 'privacy',
         label: 'Privacy Policy',
         icon: Icons.shield,
-        onTap: () async {
-          final url = Uri.parse('https://heart.nititechnologies.in/privacy-policy');
-          if (!await launchUrl(url)) {
-            debugPrint('Could not launch $url');
-          }
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const WebViewScreen(
+                title: 'Privacy Policy',
+                url: 'https://heart.nititechnologies.in/privacy-policy',
+              ),
+            ),
+          );
         },
       ),
       _QuickAction(
         id: 'terms',
         label: 'Terms of Service',
         icon: Icons.description,
-        onTap: () async {
-          final url = Uri.parse('https://heart.nititechnologies.in/terms-and-conditions');
-          if (!await launchUrl(url)) {
-            debugPrint('Could not launch $url');
-          }
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const WebViewScreen(
+                title: 'Terms of Service',
+                url: 'https://heart.nititechnologies.in/terms-and-conditions',
+              ),
+            ),
+          );
         },
       ),
       _QuickAction(

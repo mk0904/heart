@@ -8,7 +8,8 @@ import '../services/firebase_auth_service.dart';
 import '../services/firestore_service.dart';
 import 'complete_profile_screen.dart';
 import '../services/firebase_storage_service.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/material.dart';
+import 'web_view_screen.dart';
 import '../utils/user_friendly_errors.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -75,18 +76,28 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
-  Future<void> _openTermsOfService() async {
-    final url = Uri.parse('https://heart.nititechnologies.in/terms-and-conditions');
-    if (!await launchUrl(url)) {
-      debugPrint('Could not launch $url');
-    }
+  void _openTermsOfService() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const WebViewScreen(
+          title: 'Terms of Service',
+          url: 'https://heart.nititechnologies.in/terms-and-conditions',
+        ),
+      ),
+    );
   }
 
-  Future<void> _openPrivacyPolicy() async {
-    final url = Uri.parse('https://heart.nititechnologies.in/privacy-policy');
-    if (!await launchUrl(url)) {
-      debugPrint('Could not launch $url');
-    }
+  void _openPrivacyPolicy() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const WebViewScreen(
+          title: 'Privacy Policy',
+          url: 'https://heart.nititechnologies.in/privacy-policy',
+        ),
+      ),
+    );
   }
 
   void _toggleAgreeToTerms() {
